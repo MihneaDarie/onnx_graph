@@ -329,4 +329,12 @@ impl<T: Default + 'static> Node<T> for ResizeNode<T> {
         }
         Ok(())
     }
+
+    fn determine_output_shape(&mut self, omap: &mut TensorMap) {
+        if let Some(list) = &mut self.next_node {
+            for next in list {
+                next.determine_output_shape(omap);
+            }
+        }
+    }
 }

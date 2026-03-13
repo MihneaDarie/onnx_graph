@@ -10,11 +10,11 @@ use anyhow::Result;
 #[derive(Default)]
 pub struct SliceNode<T: Default> {
     data: String,
+    o: String,
+
     starts: String,
     ends: String,
     axes: String,
-
-    o: String,
 
     unique_id: UniqueId,
 
@@ -61,7 +61,7 @@ impl<T: Default + 'static> Node<T> for SliceNode<T> {
         self.next_node.as_ref()
     }
 
-    fn execute(&self, omap: &mut TensorMap) { 
+    fn execute(&self, omap: &mut TensorMap) {
         let [data, starts, ends, axes, o] =
             omap.get_disjoint_mut([&self.data, &self.starts, &self.ends, &self.axes, &self.o]);
         let data = &*data.unwrap();
@@ -139,5 +139,60 @@ impl<T: Default + 'static> Node<T> for SliceNode<T> {
             self.next_node = Some(vec![next])
         }
         Ok(())
+    }
+
+    fn determine_output_shape(&mut self, omap: &mut TensorMap) {
+        let [data, starts, ends, axes, o] =
+            omap.get_disjoint_mut([&self.data, &self.starts, &self.ends, &self.axes, &self.o]);
+        let data = data.map(|arr| &*arr);
+        let starts = starts.map(|arr| &*arr);
+        let ends = ends.map(|arr| &*arr);
+        let axes = axes.map(|arr| &*arr);
+
+        if let (Some(data), Some(o)) = (data, o) {
+            if let Some(in_shape) = data.shape() {
+                if let (
+                    Some(TypedArray::I64(starts)),
+                    Some(TypedArray::I64(ends)),
+                    Some(TypedArray::I64(axes)),
+                ) = (starts, ends, axes)
+                {
+                    let mut out_shape = in_shape.to_vec();
+
+                    for i in 0..axes.len() {
+                        let axis = axes[i] as usize;
+                        let dim_size = in_shape[axis] as i64;
+
+                        let start = {
+                            let s = starts[i];
+                            if s < 0 {
+                                (dim_size + s).max(0)
+                            } else {
+                                s.min(dim_size)
+                            }
+                        } as usize;
+
+                        let end = {
+                            let e = ends[i];
+                            if e < 0 {
+                                (dim_size + e).max(0)
+                            } else {
+                                e.min(dim_size)
+                            }
+                        } as usize;
+
+                        out_shape[axis] = end - start;
+                    }
+
+                    *o = TypedArray::empty_with_others_type(data, &out_shape);
+                }
+            }
+        }
+
+        if let Some(list) = &mut self.next_node {
+            for next in list {
+                next.determine_output_shape(omap);
+            }
+        }
     }
 }

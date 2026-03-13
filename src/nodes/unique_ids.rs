@@ -4,6 +4,7 @@ pub enum UniqueId {
     Add,
     Concat,
     Conv,
+    Gemm,
     Div,
     MaxPool,
     Mul,
@@ -15,9 +16,14 @@ pub enum UniqueId {
     Sub,
     Transpose,
     
+    ArgMax,
+    Shape,
+    Gather,
+
     //Activation
     Sigmoid,
     Silu,
+    Relu,
 
     #[default]
     Undefined,

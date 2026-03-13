@@ -145,4 +145,44 @@ impl<T: Default + 'static> Node<T> for ConcatNode<T> {
         }
         Ok(())
     }
+
+    fn determine_output_shape(&mut self, omap: &mut TensorMap) {
+        let first_input = omap.get(&self.inputs[0]);
+        let mut out_shape = Vec::new();
+        if let Some(first) = first_input {
+            if let Some(base_shape) = first.shape() {
+                let ndim = base_shape.len() as i64;
+                let axis = if self.axis < 0 {
+                    (ndim + self.axis) as usize
+                } else {
+                    self.axis as usize
+                };
+
+                let mut total_axis: usize = 0;
+                for name in &self.inputs {
+                    if let Some(t) = omap.get(name) {
+                        if let Some(s) = t.shape() {
+                            total_axis += s[axis];
+                        }
+                    }
+                }
+
+                out_shape = base_shape.to_vec();
+                out_shape[axis] = total_axis;
+            }
+
+            let [first, o] = omap.get_disjoint_mut([&self.inputs[0], &self.o]);
+            let first = first.map(|arr| &*arr);
+
+            if let (Some(first), Some(o)) = (first, o) {
+                *o = TypedArray::empty_with_others_type(first, &out_shape);
+            }
+        }
+
+        if let Some(list) = &mut self.next_node {
+            for next in list {
+                next.determine_output_shape(omap);
+            }
+        }
+    }
 }

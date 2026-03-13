@@ -6,7 +6,7 @@ use crate::{
 };
 
 #[derive(Default)]
-pub struct SiluNode<T: Default> {
+pub struct ReluNode<T: Default> {
     pub x: String,
 
     pub o: String,
@@ -16,18 +16,26 @@ pub struct SiluNode<T: Default> {
     pub next_node: Option<Vec<Box<dyn Node<T>>>>,
 }
 
-impl<T: Default> SiluNode<T> {
+impl<T: Default> ReluNode<T> {
     pub fn new() -> Self {
         Self {
             x: String::new(),
             o: String::new(),
-            unique_id: UniqueId::Silu,
+            unique_id: UniqueId::Relu,
             next_node: None,
         }
     }
+
+    pub fn add_input_strings(&mut self, x: String) {
+        self.x = x;
+    }
+
+    pub fn add_output_strings(&mut self, o: String) {
+        self.o = o;
+    }
 }
 
-impl<T: Default + 'static> Node<T> for SiluNode<T> {
+impl<T: Default + 'static> Node<T> for ReluNode<T> {
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
@@ -58,7 +66,7 @@ impl<T: Default + 'static> Node<T> for SiluNode<T> {
         if let Some(list) = &self.next_node {
             print!("{}-", list.len());
         }
-        println!("silu-{},{}", self.x, self.o);
+        println!("relu-{},{}", self.x, self.o);
         if let Some(next) = &self.next_node {
             next.iter().for_each(|v| v.print());
         }
@@ -104,7 +112,7 @@ impl<T: Default + 'static> Node<T> for SiluNode<T> {
             Some(result) => {
                 x.silu(result).unwrap();
             }
-            None => panic!("SiluNode: missing input {}", self.x),
+            None => panic!("ReluNode: missing input {}", self.x),
         }
     }
 
@@ -117,7 +125,7 @@ impl<T: Default + 'static> Node<T> for SiluNode<T> {
                 *o = TypedArray::empty_with_others_type(x, in_shape);
             }
         }
-        
+
         if let Some(list) = &mut self.next_node {
             for next in list {
                 next.determine_output_shape(omap);

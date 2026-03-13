@@ -1,9 +1,10 @@
-
 use std::any::Any;
 
-use crate::{nodes::{node::Node, unique_ids::UniqueId},
-        tensor_map::TensorMap,
-        typed_array::TypedArray};
+use crate::{
+    nodes::{node::Node, unique_ids::UniqueId},
+    tensor_map::TensorMap,
+    typed_array::TypedArray,
+};
 
 use anyhow::Result;
 use saker_rs::linarg::operations::add_maybe_simd;
@@ -95,7 +96,6 @@ impl<T: Default + 'static> Node<T> for AddNode<T> {
                         a.add(b, out).unwrap();
                     }
                 } else {
-
                     a.add(b, out).unwrap();
                 }
             }
@@ -135,5 +135,22 @@ impl<T: Default + 'static> Node<T> for AddNode<T> {
             self.next_node = Some(vec![next])
         }
         Ok(())
+    }
+
+    fn determine_output_shape(&mut self, omap: &mut TensorMap) {
+        let [a, o] = omap.get_disjoint_mut([&self.a, &self.o]);
+        let a = a.map(|arr| &*arr);
+
+        if let (Some(a), Some(o)) = (a, o) {
+            if let Some(in_shape) = a.shape() {
+                *o = TypedArray::empty_with_others_type(a, in_shape);
+            }
+        }
+
+        if let Some(list) = &mut self.next_node {
+            for next in list {
+                next.determine_output_shape(omap);
+            } 
+        }
     }
 }

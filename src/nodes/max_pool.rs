@@ -385,4 +385,44 @@ impl<T: Default + 'static> Node<T> for MaxPoolNode<T> {
         }
         Ok(())
     }
+
+    fn determine_output_shape(&mut self, omap: &mut TensorMap) {
+        let [x, o] = omap.get_disjoint_mut([&self.x, &self.o]);
+        let x = x.map(|arr| &*arr);
+
+        if let (Some(x), Some(o)) = (x, o) {
+            if let Some(x_shape) = x.shape() {
+                let hin = x_shape[2];
+                let win = x_shape[3];
+                let kh = self.kernel_shape[0];
+                let kw = self.kernel_shape[1];
+                let sh = self.strides.first().copied().unwrap_or(1);
+                let sw = self.strides.get(1).copied().unwrap_or(sh);
+                let ph = self.pads.first().copied().unwrap_or(0);
+                let pw = self.pads.get(1).copied().unwrap_or(ph);
+                let dh = self.dilations.first().copied().unwrap_or(1);
+                let dw = self.dilations.get(1).copied().unwrap_or(dh);
+
+                let hout = if self.ceil_mode != 0 {
+                    (hin + 2 * ph - dh * (kh - 1) - 1 + sh - 1) / sh + 1
+                } else {
+                    (hin + 2 * ph - dh * (kh - 1) - 1) / sh + 1
+                };
+                let wout = if self.ceil_mode != 0 {
+                    (win + 2 * pw - dw * (kw - 1) - 1 + sw - 1) / sw + 1
+                } else {
+                    (win + 2 * pw - dw * (kw - 1) - 1) / sw + 1
+                };
+
+                let out_shape = &[x_shape[0], x_shape[1], hout, wout];
+                *o = TypedArray::empty_with_others_type(x, out_shape);
+            }
+        }
+
+        if let Some(list) = &mut self.next_node {
+            for next in list {
+                next.determine_output_shape(omap);
+            }
+        }
+    }
 }

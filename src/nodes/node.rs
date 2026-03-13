@@ -29,6 +29,8 @@ pub trait Node<T: Default + 'static>: Send + Sync {
     }
     fn execute(&self, omap: &mut TensorMap);
 
+    fn determine_output_shape(&mut self, omap: &mut TensorMap);
+
     fn print(&self);
     fn self_count(&self, count: usize) -> usize;
     fn insert(&mut self, next: Box<dyn Node<T>>) -> Result<()>;

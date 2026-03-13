@@ -5,50 +5,40 @@ use crate::{
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
-use anyhow::Result;
+
+use anyhow::{Ok, Result};
+use ndarray::{ArrayD, IxDyn};
 use onnx_extractor::AttributeValue;
 
 #[derive(Default)]
-pub struct TransposeNode<T: Default> {
-    input: String,
-
+pub struct GatherNode<T: Default> {
+    data: String,
+    indices: String,
     o: String,
 
+    axis: i64,
+
     unique_id: UniqueId,
-
-    perm: Vec<i64>,
-
     next_node: Option<Vec<Box<dyn Node<T>>>>,
 }
 
-impl<T: Default> FromHashMap for TransposeNode<T> {
+impl<T: Default> FromHashMap for GatherNode<T> {
     fn from_hashmap(attrs: &HashMap<String, AttributeValue>) -> Result<Self> {
         Ok(Self {
-            input: String::new(),
+            data: String::new(),
+            indices: String::new(),
             o: String::new(),
-            perm: match attrs.get("perm") {
-                Some(av) => av.as_ints().unwrap().to_vec(),
-                None => vec![],
-            },
-            unique_id: UniqueId::Transpose,
+            axis: attrs.get("axis").and_then(|v| v.as_int()).unwrap_or(0),
+            unique_id: UniqueId::Gather,
             next_node: None,
         })
     }
 }
 
-impl<T: Default> TransposeNode<T> {
-    pub fn new(perm: Vec<i64>) -> Self {
-        Self {
-            input: String::new(),
-            o: String::new(),
-            perm,
-            unique_id: UniqueId::Transpose,
-            next_node: None,
-        }
-    }
-
-    pub fn add_input_strings(&mut self, input: String) {
-        self.input = input;
+impl<T: Default> GatherNode<T> {
+    pub fn add_input_strings(&mut self, data: String, indices: String) {
+        self.data = data;
+        self.indices = indices;
     }
 
     pub fn add_output_strings(&mut self, o: String) {
@@ -56,7 +46,7 @@ impl<T: Default> TransposeNode<T> {
     }
 }
 
-impl<T: Default + 'static> Node<T> for TransposeNode<T> {
+impl<T: Default + 'static> Node<T> for GatherNode<T> {
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
@@ -64,6 +54,7 @@ impl<T: Default + 'static> Node<T> for TransposeNode<T> {
     fn get_unique_id(&self) -> UniqueId {
         self.unique_id
     }
+
     fn get_unique_id_mut(&mut self) -> UniqueId {
         self.unique_id
     }
@@ -71,6 +62,7 @@ impl<T: Default + 'static> Node<T> for TransposeNode<T> {
     fn take_next(&mut self) -> Option<Vec<Box<dyn Node<T>>>> {
         self.next_node.take()
     }
+
     fn get_next_mut(&mut self) -> Option<&mut Vec<Box<dyn Node<T>>>> {
         self.next_node.as_mut()
     }
@@ -79,12 +71,12 @@ impl<T: Default + 'static> Node<T> for TransposeNode<T> {
         self.next_node = next;
     }
 
-    fn output_names(&self) -> Vec<String> {
-        vec![self.o.clone()]
+    fn input_names(&self) -> Vec<String> {
+        vec![self.data.clone(), self.indices.clone()]
     }
 
-    fn input_names(&self) -> Vec<String> {
-        vec![self.input.clone()]
+    fn output_names(&self) -> Vec<String> {
+        vec![self.o.clone()]
     }
 
     fn get_next(&self) -> Option<&Vec<Box<dyn Node<T>>>> {
@@ -92,14 +84,15 @@ impl<T: Default + 'static> Node<T> for TransposeNode<T> {
     }
 
     fn execute(&self, omap: &mut TensorMap) {
-        let [x, o] = omap.get_disjoint_mut([&self.input, &self.o]);
-        let x = &*x.unwrap();
+        let [data, indices, o] = omap.get_disjoint_mut([&self.data, &self.indices, &self.o]);
+        let data = &*data.unwrap();
+        let indices = &*indices.unwrap();
 
         match o {
             Some(result) => {
-                x.transpose(&self.perm, result).unwrap();
+                TypedArray::gather(data, indices, self.axis, result).unwrap();
             }
-            None => panic!("TransposeNode: missing input {}", self.input),
+            _ => panic!("GatherNode: missing output {}", self.o),
         }
     }
 
@@ -107,7 +100,10 @@ impl<T: Default + 'static> Node<T> for TransposeNode<T> {
         if let Some(list) = &self.next_node {
             print!("{}-", list.len());
         }
-        println!("transpose-{},{}", self.input, self.o);
+        println!(
+            "gather-{},{},{} axis={}",
+            self.data, self.indices, self.o, self.axis
+        );
         if let Some(next) = &self.next_node {
             next.iter().for_each(|v| v.print());
         }
@@ -132,38 +128,43 @@ impl<T: Default + 'static> Node<T> for TransposeNode<T> {
             next_node[0].insert(next)?;
             return Ok(());
         } else {
-            self.next_node = Some(vec![next])
+            self.next_node = Some(vec![next]);
         }
         Ok(())
     }
 
     fn determine_output_shape(&mut self, omap: &mut TensorMap) {
-        let [x, o] = omap.get_disjoint_mut([&self.input, &self.o]);
-        let x = x.map(|arr| &*arr);
+        let [data, indices, o] = omap.get_disjoint_mut([&self.data, &self.indices, &self.o]);
+        let data = data.map(|arr| &*arr);
+        let indices = indices.map(|arr| &*arr);
 
-        if let (Some(x), Some(o)) = (x, o) {
-            if let Some(in_shape) = x.shape() {
-                let ndim = in_shape.len() as i64;
-                let perm: Vec<usize> = if self.perm.is_empty() {
-                    (0..in_shape.len()).rev().collect()
+        if let (Some(data), Some(indices), Some(o)) = (data, indices, o) {
+            if let (Some(data_shape), Some(idx_shape)) = (data.shape(), indices.shape()) {
+                let ndim = data_shape.len() as i64;
+                let axis = if self.axis < 0 {
+                    (ndim + self.axis) as usize
                 } else {
-                    self.perm
-                        .iter()
-                        .map(|&p| {
-                            if p < 0 {
-                                (ndim + p) as usize
-                            } else {
-                                p as usize
-                            }
-                        })
-                        .collect()
+                    self.axis as usize
                 };
 
-                let out_shape: Vec<usize> = perm.iter().map(|&p| in_shape[p]).collect();
-                *o = TypedArray::empty_with_others_type(x, &out_shape);
+                let mut out_shape: Vec<usize> = Vec::new();
+                for i in 0..axis {
+                    out_shape.push(data_shape[i]);
+                }
+                for &s in idx_shape {
+                    out_shape.push(s);
+                }
+                for i in (axis + 1)..data_shape.len() {
+                    out_shape.push(data_shape[i]);
+                }
+                if out_shape.is_empty() {
+                    out_shape.push(1);
+                }
+
+                *o = TypedArray::empty_with_others_type(data, &out_shape);
             }
         }
-        
+
         if let Some(list) = &mut self.next_node {
             for next in list {
                 next.determine_output_shape(omap);

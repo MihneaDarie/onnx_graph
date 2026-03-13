@@ -2,10 +2,11 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{
     nodes::{
-        add::AddNode, concat::ConcatNode, conv::ConvNode, div::DivNode, hash_trait::FromHashMap,
-        max_pool::MaxPoolNode, mul::MulNode, node::Node, reshape::ReshapeNode, resize::ResizeNode,
-        sigmoid::SigmoidNode, slice::SliceNode, soft_max::SoftMaxNode, split::SplitNode,
-        sub::SubNode, transpose::TransposeNode, unique_ids::UniqueId,
+        add::AddNode, argmax::ArgMaxNode, concat::ConcatNode, conv::ConvNode, div::DivNode,
+        gather::GatherNode, gemm::GemmNode, hash_trait::FromHashMap, max_pool::MaxPoolNode,
+        mul::MulNode, node::Node, relu::ReluNode, reshape::ReshapeNode, resize::ResizeNode,
+        shape::ShapeNode, sigmoid::SigmoidNode, slice::SliceNode, soft_max::SoftMaxNode,
+        split::SplitNode, sub::SubNode, transpose::TransposeNode, unique_ids::UniqueId,
     },
     tensor_map::TensorMap,
     typed_array::TypedArray,
@@ -56,8 +57,56 @@ impl<T: Default + 'static> GraphForm<T> {
         }
     }
 
-    pub fn load_data_arrays(onnx: &OnnxModel) -> TensorMap {
+    pub fn load_data_arrays(onnx: &OnnxModel, input_shape: Option<&[i64]>) -> TensorMap {
         let mut map = TensorMap::new();
+
+        onnx.get_input_tensors().iter().for_each(|tensor| {
+            let mut shape = tensor.shape().to_owned();
+
+            if let Some(in_shape) = input_shape {
+                if !in_shape.iter().all(|item| *item > 0) {
+                    panic!("You inserted negative shape values");
+                }
+                shape.iter_mut().zip(in_shape).for_each(|(tensor, input)| {
+                    if *tensor < 0 && *input > 0 {
+                        *tensor = *input;
+                    } else if *tensor != *input {
+                        panic!("different specified shape members !");
+                    }
+                });
+            }
+
+            let shape = shape.as_slice();
+
+            if tensor.data().is_ok() {
+                map.insert(tensor.name().to_string(), TypedArray::from_tensor(&tensor));
+            } else if shape.iter().any(|&d| d < 0) {
+                map.insert(tensor.name().to_string(), TypedArray::Undefined);
+            } else if !shape.is_empty() {
+                map.insert(
+                    tensor.name().to_string(),
+                    TypedArray::from_tensor_empty(tensor, shape),
+                );
+            } else {
+                map.insert(tensor.name().to_string(), TypedArray::Undefined);
+            }
+        });
+
+        onnx.get_output_tensors().iter().for_each(|tensor| {
+            let shape = tensor.shape();
+            if tensor.data().is_ok() {
+                map.insert(tensor.name().to_string(), TypedArray::from_tensor(&tensor));
+            } else if shape.iter().any(|&d| d < 0) {
+                map.insert(tensor.name().to_string(), TypedArray::Undefined);
+            } else if !shape.is_empty() {
+                map.insert(
+                    tensor.name().to_string(),
+                    TypedArray::from_tensor_empty(tensor, shape),
+                );
+            } else {
+                map.insert(tensor.name().to_string(), TypedArray::Undefined);
+            }
+        });
 
         onnx.operations.iter().for_each(|s| {
             s.outputs.iter().for_each(|out| {
@@ -67,22 +116,34 @@ impl<T: Default + 'static> GraphForm<T> {
 
         onnx.tensor_names().iter().for_each(|t| {
             if let Some(tensor) = onnx.get_tensor(t) {
-                let typed = if tensor.data().is_ok() {
-                    TypedArray::from_tensor(&tensor)
+                let shape = tensor.shape();
+
+                if tensor.data().is_ok() {
+                    map.insert(tensor.name().to_string(), TypedArray::from_tensor(&tensor));
+                } else if shape.iter().any(|&d| d < 0) {
+                    map.insert(tensor.name().to_string(), TypedArray::Undefined);
+                } else if !shape.is_empty() {
+                    map.insert(
+                        tensor.name().to_string(),
+                        TypedArray::from_tensor_empty(tensor, shape),
+                    );
                 } else {
-                    TypedArray::from_tensor_empty(tensor)
-                };
-                map.insert(tensor.name().to_string(), typed);
+                    map.insert(tensor.name().to_string(), TypedArray::Undefined);
+                }
             }
         });
 
         map
     }
 
-    pub fn from_onnx_file(onnx_file_path: &str) -> anyhow::Result<(Self, TensorMap)> {
+    pub fn from_onnx_file(
+        onnx_file_path: &str,
+        input_shape: Option<&[i64]>,
+    ) -> anyhow::Result<(Self, TensorMap)> {
         let onnx = OnnxModel::load_from_file(onnx_file_path)?;
         let mut ret = Self::new();
-        let map = Self::load_data_arrays(&onnx);
+
+        let mut map = Self::load_data_arrays(&onnx, input_shape);
 
         onnx.execution_order()?
             .into_iter()
@@ -93,11 +154,23 @@ impl<T: Default + 'static> GraphForm<T> {
                     concat.add_output_strings(elem.outputs[0].clone());
                     ret.insert(Box::new(concat));
                 }
+                "Gather" => {
+                    let mut concat = GatherNode::from_hashmap(&elem.attributes).unwrap();
+                    concat.add_input_strings(elem.inputs[0].clone(), elem.inputs[1].clone());
+                    concat.add_output_strings(elem.outputs[0].clone());
+                    ret.insert(Box::new(concat));
+                }
                 "Sigmoid" => {
                     let mut sigmoid = SigmoidNode::new();
                     sigmoid.add_input_strings(elem.inputs[0].clone());
                     sigmoid.add_output_strings(elem.outputs[0].clone());
                     ret.insert(Box::new(sigmoid));
+                }
+                "Relu" => {
+                    let mut relu = ReluNode::new();
+                    relu.add_input_strings(elem.inputs[0].clone());
+                    relu.add_output_strings(elem.outputs[0].clone());
+                    ret.insert(Box::new(relu));
                 }
                 "Conv" => {
                     let mut conv = ConvNode::from_hashmap(&elem.attributes).unwrap();
@@ -107,8 +180,15 @@ impl<T: Default + 'static> GraphForm<T> {
                     conv.add_output_strings(elem.outputs[0].clone());
                     ret.insert(Box::new(conv));
                 }
+                "Gemm" => {
+                    let mut conv = GemmNode::from_hashmap(&elem.attributes).unwrap();
+                    let inputs = &elem.inputs;
+                    let b = inputs.get(2).cloned();
+                    conv.add_input_strings(inputs[0].clone(), inputs[1].clone(), b);
+                    conv.add_output_strings(elem.outputs[0].clone());
+                    ret.insert(Box::new(conv));
+                }
                 "Resize" => {
-                    println!("{:?}", elem.attributes);
                     let inputs = &elem.inputs;
                     let roi = inputs.get(1).filter(|s| !s.is_empty()).cloned();
                     let scales = inputs.get(2).filter(|s| !s.is_empty()).cloned();
@@ -143,6 +223,12 @@ impl<T: Default + 'static> GraphForm<T> {
                     div.add_output_strings(elem.outputs[0].clone());
                     ret.insert(Box::new(div));
                 }
+                "ArgMax" => {
+                    let mut argmax = ArgMaxNode::from_hashmap(&elem.attributes).unwrap();
+                    argmax.add_input_strings(elem.inputs[0].clone());
+                    argmax.add_output_strings(elem.outputs[0].clone());
+                    ret.insert(Box::new(argmax));
+                }
                 "Softmax" => {
                     let mut soft_max = SoftMaxNode::from_hashmap(&elem.attributes).unwrap();
                     soft_max.add_input_strings(elem.inputs[0].clone());
@@ -173,6 +259,12 @@ impl<T: Default + 'static> GraphForm<T> {
                     reshape.add_output_strings(elem.outputs[0].clone());
                     ret.insert(Box::new(reshape));
                 }
+                "Shape" => {
+                    let mut shape = ShapeNode::from_hashmap(&elem.attributes).unwrap();
+                    shape.add_input_strings(elem.inputs[0].clone());
+                    shape.add_output_strings(elem.outputs[0].clone());
+                    ret.insert(Box::new(shape));
+                }
                 "Slice" => {
                     let mut slice = SliceNode::new();
                     let input = &elem.inputs;
@@ -188,6 +280,11 @@ impl<T: Default + 'static> GraphForm<T> {
                 _ => {}
             });
 
+        if let Some(start) = &mut ret.nodes {
+            for next in start {
+                next.determine_output_shape(&mut map);
+            }
+        }
         Ok((ret, map))
     }
 
@@ -225,7 +322,7 @@ impl<T: Default + 'static> GraphForm<T> {
     }
 
     pub fn pass(&self, omap: &mut TensorMap, input: &ArrayD<f32>) {
-        omap.insert("images".to_string(), TypedArray::F32(input.clone()));
+        omap.insert("observation".to_string(), TypedArray::F32(input.clone()));
 
         if let Some(nodes) = &self.nodes {
             nodes.iter().for_each(|val| val.pass(omap));

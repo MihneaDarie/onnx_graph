@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::fmt::Display;
 
 use crate::nodes::conv::Conv2D;
 use crate::nodes::resize::Mode;
@@ -9,7 +10,7 @@ use rayon::iter::IntoParallelRefIterator;
 use rayon::iter::IntoParallelRefMutIterator;
 use rayon::iter::ParallelIterator;
 use rayon::{iter::IndexedParallelIterator, slice::ParallelSliceMut};
-use saker_rs::linarg::operations::sgemm_bias_parallel;
+use saker_rs::linarg::operations::{apply_relu, sgemm_bias_parallel};
 use saker_rs::{
     activations::Activation,
     linarg::operations::{apply_sigmoid, apply_silu},
@@ -173,6 +174,16 @@ pub fn aprox_silu_f64(x: f64) -> f64 {
 }
 
 #[inline(always)]
+pub fn relu_f64(x: f64) -> f64 {
+    x.max(0.0f64)
+}
+
+#[inline(always)]
+pub fn relu_f32(x: f64) -> f64 {
+    x.max(0.0f64)
+}
+
+#[inline(always)]
 pub fn aprox_sigmoid_f32(x: f32) -> f32 {
     aprox_silu_f32(x) / x
 }
@@ -183,6 +194,24 @@ pub fn aprox_sigmoid_f64(x: f64) -> f64 {
 }
 
 impl TypedArray {
+    pub fn shape(&self) -> Option<&[usize]> {
+        match self {
+            TypedArray::Undefined => None,
+            TypedArray::F32(array_base) => Some(array_base.shape()),
+            TypedArray::U8(array_base) => Some(array_base.shape()),
+            TypedArray::I8(array_base) => Some(array_base.shape()),
+            TypedArray::U16(array_base) => Some(array_base.shape()),
+            TypedArray::I16(array_base) => Some(array_base.shape()),
+            TypedArray::I32(array_base) => Some(array_base.shape()),
+            TypedArray::I64(array_base) => Some(array_base.shape()),
+            TypedArray::String(array_base) => Some(array_base.shape()),
+            TypedArray::BOOL(array_base) => Some(array_base.shape()),
+            TypedArray::F64(array_base) => Some(array_base.shape()),
+            TypedArray::U32(array_base) => Some(array_base.shape()),
+            TypedArray::U64(array_base) => Some(array_base.shape()),
+        }
+    }
+
     pub fn ensure_contiguous(self) -> Self {
         macro_rules! fix {
             ($variant:ident, $a:expr) => {
@@ -204,6 +233,239 @@ impl TypedArray {
             TypedArray::U64(a) => fix!(U64, a),
             other => other,
         }
+    }
+
+    pub fn argmax(
+        data: &TypedArray,
+        axis: i64,
+        keepdims: bool,
+        select_last_index: bool,
+        o: &mut TypedArray,
+    ) -> anyhow::Result<()> {
+        macro_rules! argmax_variant {
+            ($arr:expr) => {{
+                let ndim = $arr.ndim() as i64;
+                let axis_usize = if axis < 0 {
+                    (ndim + axis) as usize
+                } else {
+                    axis as usize
+                };
+
+                let mut out_shape: Vec<usize> = $arr.shape().to_vec();
+                let axis_len = out_shape[axis_usize];
+
+                if keepdims {
+                    out_shape[axis_usize] = 1;
+                } else {
+                    out_shape.remove(axis_usize);
+                }
+
+                let needs_alloc = match &*o {
+                    TypedArray::I64(out) => out.shape() != out_shape.as_slice(),
+                    _ => true,
+                };
+
+                if needs_alloc {
+                    *o = TypedArray::I64(ArrayD::zeros(IxDyn(&out_shape)));
+                }
+
+                let out_arr = match o {
+                    TypedArray::I64(arr) => arr,
+                    _ => unreachable!(),
+                };
+
+                let out_sl = out_arr.as_slice_memory_order_mut().unwrap();
+                let mut idx = 0;
+
+                for lane in $arr.lanes(Axis(axis_usize)) {
+                    let mut max_val = lane[0];
+                    let mut max_idx: i64 = 0;
+
+                    for i in 1..axis_len {
+                        let val = lane[i];
+                        if select_last_index {
+                            if val >= max_val {
+                                max_val = val;
+                                max_idx = i as i64;
+                            }
+                        } else {
+                            if val > max_val {
+                                max_val = val;
+                                max_idx = i as i64;
+                            }
+                        }
+                    }
+
+                    out_sl[idx] = max_idx;
+                    idx += 1;
+                }
+            }};
+        }
+
+        match data {
+            TypedArray::F32(arr) => argmax_variant!(arr),
+            TypedArray::F64(arr) => argmax_variant!(arr),
+            TypedArray::I32(arr) => argmax_variant!(arr),
+            TypedArray::I64(arr) => argmax_variant!(arr),
+            TypedArray::U8(arr) => argmax_variant!(arr),
+            TypedArray::U16(arr) => argmax_variant!(arr),
+            TypedArray::U32(arr) => argmax_variant!(arr),
+            TypedArray::U64(arr) => argmax_variant!(arr),
+            _ => return Err(anyhow::anyhow!("argmax: unsupported type")),
+        }
+
+        Ok(())
+    }
+
+    pub fn gather(
+        data: &TypedArray,
+        indices: &TypedArray,
+        axis: i64,
+        o: &mut TypedArray,
+    ) -> anyhow::Result<()> {
+        let idx_vec: Vec<i64> = match indices {
+            TypedArray::I64(arr) => arr.iter().copied().collect(),
+            TypedArray::I32(arr) => arr.iter().map(|&v| v as i64).collect(),
+            _ => return Err(anyhow::anyhow!("Gather: indices must be I32 or I64")),
+        };
+        let idx_shape: Vec<usize> = match indices {
+            TypedArray::I64(arr) => arr.shape().to_vec(),
+            TypedArray::I32(arr) => arr.shape().to_vec(),
+            _ => unreachable!(),
+        };
+
+        macro_rules! gather_variant {
+            ($variant:ident, $arr:expr) => {{
+                let ndim = $arr.ndim() as i64;
+                let axis_usize = if axis < 0 {
+                    (ndim + axis) as usize
+                } else {
+                    axis as usize
+                };
+
+                let data_shape = $arr.shape();
+                let axis_size = data_shape[axis_usize] as i64;
+
+                let mut out_shape: Vec<usize> = Vec::new();
+                for i in 0..axis_usize {
+                    out_shape.push(data_shape[i]);
+                }
+
+                for &s in &idx_shape {
+                    out_shape.push(s);
+                }
+                for i in (axis_usize + 1)..data_shape.len() {
+                    out_shape.push(data_shape[i]);
+                }
+
+                if out_shape.is_empty() {
+                    out_shape.push(1);
+                }
+
+                let needs_alloc = match &*o {
+                    TypedArray::$variant(out) => out.shape() != out_shape.as_slice(),
+                    _ => true,
+                };
+
+                if needs_alloc {
+                    *o = TypedArray::$variant(ArrayD::zeros(IxDyn(&out_shape)));
+                }
+
+                let out_arr = match o {
+                    TypedArray::$variant(arr) => arr,
+                    _ => unreachable!(),
+                };
+
+                let data_sl = $arr.as_slice_memory_order().unwrap();
+                let out_sl = out_arr.as_slice_memory_order_mut().unwrap();
+
+                let outer_size: usize = data_shape[..axis_usize].iter().product();
+                let inner_size: usize = data_shape[axis_usize + 1..].iter().product();
+                let axis_dim = data_shape[axis_usize];
+
+                let mut out_idx = 0;
+                for outer in 0..outer_size {
+                    for &idx in &idx_vec {
+                        let idx = if idx < 0 {
+                            (axis_size + idx) as usize
+                        } else {
+                            idx as usize
+                        };
+
+                        let src_offset = outer * axis_dim * inner_size + idx * inner_size;
+                        let len = inner_size;
+
+                        out_sl[out_idx..out_idx + len]
+                            .copy_from_slice(&data_sl[src_offset..src_offset + len]);
+                        out_idx += len;
+                    }
+                }
+            }};
+        }
+
+        match data {
+            TypedArray::F32(arr) => gather_variant!(F32, arr),
+            TypedArray::F64(arr) => gather_variant!(F64, arr),
+            TypedArray::I32(arr) => gather_variant!(I32, arr),
+            TypedArray::I64(arr) => gather_variant!(I64, arr),
+            TypedArray::U8(arr) => gather_variant!(U8, arr),
+            TypedArray::U16(arr) => gather_variant!(U16, arr),
+            TypedArray::U32(arr) => gather_variant!(U32, arr),
+            TypedArray::U64(arr) => gather_variant!(U64, arr),
+            _ => return Err(anyhow::anyhow!("Gather: unsupported data type")),
+        }
+
+        Ok(())
+    }
+
+    pub fn shape_op(
+        data: &TypedArray,
+        start: i64,
+        end: Option<i64>,
+        o: &mut TypedArray,
+    ) -> anyhow::Result<()> {
+        let shape: Vec<i64> = match data {
+            TypedArray::F32(arr) => arr.shape().iter().map(|&s| s as i64).collect(),
+            TypedArray::F64(arr) => arr.shape().iter().map(|&s| s as i64).collect(),
+            TypedArray::I32(arr) => arr.shape().iter().map(|&s| s as i64).collect(),
+            TypedArray::I64(arr) => arr.shape().iter().map(|&s| s as i64).collect(),
+            TypedArray::U8(arr) => arr.shape().iter().map(|&s| s as i64).collect(),
+            TypedArray::U16(arr) => arr.shape().iter().map(|&s| s as i64).collect(),
+            TypedArray::U32(arr) => arr.shape().iter().map(|&s| s as i64).collect(),
+            TypedArray::U64(arr) => arr.shape().iter().map(|&s| s as i64).collect(),
+            TypedArray::Undefined => return Err(anyhow::anyhow!("Shape: input is Undefined")),
+            _ => return Err(anyhow::anyhow!("Shape: unsupported type")),
+        };
+
+        let r = shape.len() as i64;
+
+        let start = if start < 0 {
+            (r + start).max(0) as usize
+        } else {
+            (start as usize).min(r as usize)
+        };
+
+        let end = match end {
+            Some(e) => {
+                if e < 0 {
+                    (r + e).max(0) as usize
+                } else {
+                    (e as usize).min(r as usize)
+                }
+            }
+            None => r as usize,
+        };
+
+        let sliced: Vec<i64> = if start >= end {
+            vec![]
+        } else {
+            shape[start..end].to_vec()
+        };
+
+        let len = sliced.len();
+        *o = TypedArray::I64(ArrayD::from_shape_vec(IxDyn(&[len]), sliced).unwrap());
+
+        Ok(())
     }
 
     pub fn max_pool(
@@ -573,7 +835,26 @@ impl TypedArray {
                     .zip(src.par_iter())
                     .for_each(|(d, s)| *d = aprox_silu_f64(*s));
             }
-            _ => return Err(anyhow::anyhow!("sigmoid only supported for F32/F64")),
+            _ => return Err(anyhow::anyhow!("silu only supported for F32/F64")),
+        }
+        Ok(())
+    }
+
+    pub fn relu(&self, o: &mut TypedArray) -> anyhow::Result<()> {
+        match (self, &mut *o) {
+            (TypedArray::F32(i), TypedArray::F32(o)) => {
+                let src = i.as_slice_memory_order().unwrap();
+                let dst = o.as_slice_memory_order_mut().unwrap();
+                apply_relu(dst, src, i.len());
+            }
+            (TypedArray::F64(i), TypedArray::F64(o)) => {
+                let src = i.as_slice_memory_order().unwrap();
+                let dst = o.as_slice_memory_order_mut().unwrap();
+                dst.par_iter_mut()
+                    .zip(src.par_iter())
+                    .for_each(|(d, s)| *d = relu_f64(*s));
+            }
+            _ => return Err(anyhow::anyhow!("relu only supported for F32/F64")),
         }
         Ok(())
     }
@@ -795,6 +1076,126 @@ impl TypedArray {
         Ok(())
     }
 
+    pub fn gemm(
+        a: &TypedArray,
+        b: &TypedArray,
+        c: Option<&TypedArray>,
+        alpha: f32,
+        beta: f32,
+        trans_a: bool,
+        trans_b: bool,
+        o: &mut TypedArray,
+    ) -> anyhow::Result<()> {
+        let a_arr = match a {
+            TypedArray::F32(a) => a,
+            _ => return Err(anyhow::anyhow!("Gemm: A must be F32")),
+        };
+        let b_arr = match b {
+            TypedArray::F32(b) => b,
+            _ => return Err(anyhow::anyhow!("Gemm: B must be F32")),
+        };
+
+        let a_shape = a_arr.shape();
+        let b_shape = b_arr.shape();
+
+        let (m, k) = if trans_a {
+            (a_shape[1], a_shape[0])
+        } else {
+            (a_shape[0], a_shape[1])
+        };
+        let n = if trans_b { b_shape[0] } else { b_shape[1] };
+
+        let expected = [m, n];
+        let needs_alloc = match &*o {
+            TypedArray::F32(out) => out.shape() != expected,
+            _ => true,
+        };
+        if needs_alloc {
+            *o = TypedArray::F32(ArrayD::zeros(IxDyn(&expected)));
+        }
+
+        let out_arr = match o {
+            TypedArray::F32(arr) => arr,
+            _ => unreachable!(),
+        };
+        let out_sl = out_arr.as_slice_memory_order_mut().unwrap();
+        let a_sl = a_arr.as_slice_memory_order().unwrap();
+        let b_sl = b_arr.as_slice_memory_order().unwrap();
+
+        let a_ready: Vec<f32>;
+        let a_ptr = if trans_a {
+            let rows = a_shape[0];
+            let cols = a_shape[1];
+            a_ready = (0..cols)
+                .flat_map(|i| (0..rows).map(move |j| a_sl[j * cols + i]))
+                .collect();
+            &a_ready[..]
+        } else {
+            a_sl
+        };
+
+        let b_ready: Vec<f32>;
+        let b_ptr = if trans_b {
+            b_sl
+        } else {
+            let rows = b_shape[0];
+            let cols = b_shape[1];
+            b_ready = (0..cols)
+                .flat_map(|i| (0..rows).map(move |j| b_sl[j * cols + i]))
+                .collect();
+            &b_ready[..]
+        };
+
+        let scaled_bias: Vec<f32>;
+        let bias = if let Some(TypedArray::F32(c_arr)) = c {
+            let c_sl = c_arr.as_slice_memory_order().unwrap();
+            if c_arr.len() == n {
+                if beta == 1.0 {
+                    Some(c_sl)
+                } else {
+                    scaled_bias = c_sl.iter().map(|&v| beta * v).collect();
+                    Some(&scaled_bias[..])
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        if alpha == 1.0 {
+            sgemm_bias_parallel(m, n, k, a_ptr, b_ptr, bias, out_sl, Activation::None);
+        } else {
+            sgemm_bias_parallel(m, n, k, a_ptr, b_ptr, None, out_sl, Activation::None);
+            out_sl.iter_mut().for_each(|v| *v *= alpha);
+
+            if let Some(bias_sl) = bias {
+                for row in 0..m {
+                    let offset = row * n;
+                    for col in 0..n {
+                        out_sl[offset + col] += bias_sl[col];
+                    }
+                }
+            }
+        }
+
+        if let Some(TypedArray::F32(c_arr)) = c {
+            if c_arr.len() != n {
+                let c_sl = c_arr.as_slice_memory_order().unwrap();
+                if c_arr.len() == 1 {
+                    let val = beta * c_sl[0];
+                    out_sl.iter_mut().for_each(|v| *v += val);
+                } else if c_arr.len() == m * n {
+                    for i in 0..m * n {
+                        out_sl[i] += beta * c_sl[i];
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     pub fn conv(
         &self,
         w: &TypedArray,
@@ -955,14 +1356,24 @@ impl TypedArray {
     impl_typed_binop!(mul, *, *=, [F32, F64, I32, I64, U8, U16, U32, U64, I8, I16]);
     impl_typed_binop!(div, /, /=, [F32, F64, I32, I64, U8, U16, U32, U64, I8, I16]);
 
-    pub fn from_tensor_empty(tensor: &OnnxTensor) -> Self {
-        let shape = IxDyn(
-            &tensor
-                .shape()
-                .iter()
-                .map(|&x| x as usize)
-                .collect::<Vec<usize>>(),
-        );
+    pub fn empty_with_others_type(other: &Self, shape: &[usize]) -> Self {
+        match other {
+            TypedArray::F32(_) => TypedArray::F32(ArrayD::zeros(shape)),
+            TypedArray::U8(_) => TypedArray::U8(ArrayD::zeros(shape)),
+            TypedArray::I8(_) => TypedArray::I8(ArrayD::zeros(shape)),
+            TypedArray::U16(_) => TypedArray::U16(ArrayD::zeros(shape)),
+            TypedArray::I16(_) => TypedArray::I16(ArrayD::zeros(shape)),
+            TypedArray::I32(_) => TypedArray::I32(ArrayD::zeros(shape)),
+            TypedArray::I64(_) => TypedArray::I64(ArrayD::zeros(shape)),
+            TypedArray::F64(_) => TypedArray::F64(ArrayD::zeros(shape)),
+            TypedArray::U32(_) => TypedArray::U32(ArrayD::zeros(shape)),
+            TypedArray::U64(_) => TypedArray::U64(ArrayD::zeros(shape)),
+            _ => TypedArray::Undefined,
+        }
+    }
+
+    pub fn from_tensor_empty(tensor: &OnnxTensor, shape: &[i64]) -> Self {
+        let shape = IxDyn(&shape.iter().map(|&x| x as usize).collect::<Vec<usize>>());
 
         match tensor.data_type() {
             DataType::Float => TypedArray::F32(ArrayD::zeros(shape)),
@@ -1084,6 +1495,26 @@ impl TypedArray {
                 TypedArray::U64(ArrayD::from_shape_vec(shape, u64s).unwrap())
             }
             _ => TypedArray::Undefined,
+        }
+    }
+}
+
+impl Display for TypedArray {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self {
+            TypedArray::Undefined => write!(f, "undefined"),
+            TypedArray::F32(array_base) => write!(f, "{:?}", array_base.shape()),
+            TypedArray::U8(array_base) => write!(f, "{:?}", array_base.shape()),
+            TypedArray::I8(array_base) => write!(f, "{:?}", array_base.shape()),
+            TypedArray::U16(array_base) => write!(f, "{:?}", array_base.shape()),
+            TypedArray::I16(array_base) => write!(f, "{:?}", array_base.shape()),
+            TypedArray::I32(array_base) => write!(f, "{:?}", array_base.shape()),
+            TypedArray::I64(array_base) => write!(f, "{:?}", array_base.shape()),
+            TypedArray::String(array_base) => write!(f, "{:?}", array_base.shape()),
+            TypedArray::BOOL(array_base) => write!(f, "{:?}", array_base.shape()),
+            TypedArray::F64(array_base) => write!(f, "{:?}", array_base.shape()),
+            TypedArray::U32(array_base) => write!(f, "{:?}", array_base.shape()),
+            TypedArray::U64(array_base) => write!(f, "{:?}", array_base.shape()),
         }
     }
 }

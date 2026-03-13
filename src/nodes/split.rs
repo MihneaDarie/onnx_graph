@@ -86,7 +86,7 @@ impl<T: Default + 'static> Node<T> for SplitNode<T> {
         self.next_node.as_ref()
     }
 
-    fn execute(&self, omap: &mut TensorMap) { 
+    fn execute(&self, omap: &mut TensorMap) {
         let input = omap.get(&self.input);
 
         let split_sizes: Vec<i64> = if let Some(TypedArray::I64(a)) = omap.get(&self.split) {
@@ -169,5 +169,14 @@ impl<T: Default + 'static> Node<T> for SplitNode<T> {
             self.next_node = Some(vec![next])
         }
         Ok(())
+    }
+
+    fn determine_output_shape(&mut self, omap: &mut TensorMap) {
+
+        if let Some(list) = &mut self.next_node {
+            for next in list {
+                next.determine_output_shape(omap);
+            } 
+        }
     }
 }

@@ -41,7 +41,7 @@ impl<T: Default + 'static> Node<T> for SigmoidNode<T> {
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
-    
+
     fn get_unique_id(&self) -> UniqueId {
         self.unique_id
     }
@@ -53,7 +53,7 @@ impl<T: Default + 'static> Node<T> for SigmoidNode<T> {
         self.next_node.as_ref()
     }
 
-    fn execute(&self, omap: &mut TensorMap) { 
+    fn execute(&self, omap: &mut TensorMap) {
         let [x, o] = omap.get_disjoint_mut([&self.x, &self.o]);
         let x = &*x.unwrap();
 
@@ -116,5 +116,22 @@ impl<T: Default + 'static> Node<T> for SigmoidNode<T> {
             self.next_node = Some(vec![next])
         }
         Ok(())
+    }
+
+    fn determine_output_shape(&mut self, omap: &mut TensorMap) {
+        let [x, o] = omap.get_disjoint_mut([&self.x, &self.o]);
+        let x = x.map(|arr| &*arr);
+
+        if let (Some(x), Some(o)) = (x, o) {
+            if let Some(in_shape) = x.shape() {
+                *o = TypedArray::empty_with_others_type(x, in_shape);
+            }
+        }
+
+        if let Some(list) = &mut self.next_node {
+            for next in list {
+                next.determine_output_shape(omap);
+            } 
+        }
     }
 }
