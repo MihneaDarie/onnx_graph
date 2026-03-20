@@ -6,7 +6,7 @@ use crate::{
     typed_array::TypedArray,
 };
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Conv2D {
     pub pad: usize,
     pub stride: usize,
@@ -225,6 +225,7 @@ impl<T: Default + 'static> Node<T> for ConvNode<T> {
         let x = &*x.unwrap();
         let w = &*w.unwrap();
         let b = b.map(|b| &*b);
+
         match o {
             Some(result) => {
                 let cfg = Conv2D {
@@ -277,28 +278,28 @@ impl<T: Default + 'static> Node<T> for ConvNode<T> {
         let x = x.map(|arr| &*arr);
         let w = w.map(|arr| &*arr);
 
-        if let (Some(x), Some(w), Some(o)) = (x, w, o) {
-            if let (Some(x_shape), Some(w_shape)) = (x.shape(), w.shape()) {
-                let batch = x_shape[0];
-                let cout = w_shape[0];
-                let kh = w_shape[2];
-                let kw = w_shape[3];
-                let hin = x_shape[2];
-                let win = x_shape[3];
+        if let (Some(x), Some(w), Some(o)) = (x, w, o)
+            && let (Some(x_shape), Some(w_shape)) = (x.shape(), w.shape())
+        {
+            let batch = x_shape[0];
+            let cout = w_shape[0];
+            let kh = w_shape[2];
+            let kw = w_shape[3];
+            let hin = x_shape[2];
+            let win = x_shape[3];
 
-                let ph = self.pads.first().copied().unwrap_or(0);
-                let pw = self.pads.get(1).copied().unwrap_or(ph);
-                let sh = self.strides.first().copied().unwrap_or(1);
-                let sw = self.strides.get(1).copied().unwrap_or(sh);
-                let dh = self.dilations.first().copied().unwrap_or(1);
-                let dw = self.dilations.get(1).copied().unwrap_or(dh);
+            let ph = self.pads.first().copied().unwrap_or(0);
+            let pw = self.pads.get(1).copied().unwrap_or(ph);
+            let sh = self.strides.first().copied().unwrap_or(1);
+            let sw = self.strides.get(1).copied().unwrap_or(sh);
+            let dh = self.dilations.first().copied().unwrap_or(1);
+            let dw = self.dilations.get(1).copied().unwrap_or(dh);
 
-                let hout = (hin + 2 * ph - dh * (kh - 1) - 1) / sh + 1;
-                let wout = (win + 2 * pw - dw * (kw - 1) - 1) / sw + 1;
+            let hout = (hin + 2 * ph - dh * (kh - 1) - 1) / sh + 1;
+            let wout = (win + 2 * pw - dw * (kw - 1) - 1) / sw + 1;
 
-                let out_shape = &[batch, cout, hout, wout];
-                *o = TypedArray::empty_with_others_type(x, out_shape);
-            }
+            let out_shape = &[batch, cout, hout, wout];
+            *o = TypedArray::empty_with_others_type(x, out_shape);
         }
         if let Some(list) = &mut self.next_node {
             for next in list {

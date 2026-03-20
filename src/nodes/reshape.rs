@@ -152,44 +152,41 @@ impl<T: Default + 'static> Node<T> for ReshapeNode<T> {
         let data = data.map(|arr| &*arr);
         let shape = shape.map(|arr| &*arr);
 
-        if let (Some(data), Some(shape_tensor), Some(o)) = (data, shape, o) {
-            if let (Some(in_shape), Some(TypedArray::I64(shape_arr))) =
-                (data.shape(), Some(shape_tensor))
-            {
-                if let TypedArray::I64(shape_arr) = shape_tensor {
-                    let current_size: usize = in_shape.iter().product();
+        if let (Some(data), Some(shape_tensor), Some(o)) = (data, shape, o)
+            && let Some(in_shape) = data.shape()
+            && let TypedArray::I64(shape_arr) = shape_tensor
+        {
+            let current_size: usize = in_shape.iter().product();
 
-                    let mut new_shape: Vec<usize> = shape_arr
-                        .iter()
-                        .enumerate()
-                        .map(|(i, &dim)| {
-                            if dim == -1 {
-                                0
-                            } else if dim == 0 {
-                                if self.allow_zero {
-                                    0
-                                } else {
-                                    *in_shape.get(i).unwrap_or(&0)
-                                }
-                            } else {
-                                dim as usize
-                            }
-                        })
-                        .collect();
-
-                    if let Some(idx) = shape_arr.iter().position(|&d| d == -1) {
-                        let known: usize = new_shape
-                            .iter()
-                            .enumerate()
-                            .filter(|&(i, _)| i != idx)
-                            .map(|(_, &d)| if d == 0 { 1 } else { d })
-                            .product();
-                        new_shape[idx] = current_size / known;
+            let mut new_shape: Vec<usize> = shape_arr
+                .iter()
+                .enumerate()
+                .map(|(i, &dim)| {
+                    if dim == -1 {
+                        0
+                    } else if dim == 0 {
+                        if self.allow_zero {
+                            0
+                        } else {
+                            *in_shape.get(i).unwrap_or(&0)
+                        }
+                    } else {
+                        dim as usize
                     }
+                })
+                .collect();
 
-                    *o = TypedArray::empty_with_others_type(data, &new_shape);
-                }
+            if let Some(idx) = shape_arr.iter().position(|&d| d == -1) {
+                let known: usize = new_shape
+                    .iter()
+                    .enumerate()
+                    .filter(|&(i, _)| i != idx)
+                    .map(|(_, &d)| if d == 0 { 1 } else { d })
+                    .product();
+                new_shape[idx] = current_size / known;
             }
+
+            *o = TypedArray::empty_with_others_type(data, &new_shape);
         }
 
         if let Some(list) = &mut self.next_node {

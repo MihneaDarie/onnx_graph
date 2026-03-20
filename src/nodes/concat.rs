@@ -160,10 +160,10 @@ impl<T: Default + 'static> Node<T> for ConcatNode<T> {
 
                 let mut total_axis: usize = 0;
                 for name in &self.inputs {
-                    if let Some(t) = omap.get(name) {
-                        if let Some(s) = t.shape() {
-                            total_axis += s[axis];
-                        }
+                    if let Some(t) = omap.get(name)
+                        && let Some(s) = t.shape()
+                    {
+                        total_axis += s[axis];
                     }
                 }
 

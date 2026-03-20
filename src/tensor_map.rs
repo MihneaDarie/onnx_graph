@@ -2,15 +2,14 @@ use std::collections::HashMap;
 
 use crate::typed_array::TypedArray;
 
+#[derive(Default)]
 pub struct TensorMap {
     inner: HashMap<String, TypedArray>,
 }
 
 impl TensorMap {
     pub fn new() -> Self {
-        Self {
-            inner: HashMap::new(),
-        }
+        Self::default()
     }
 
     #[inline]

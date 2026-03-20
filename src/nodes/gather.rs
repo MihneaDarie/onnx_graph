@@ -138,33 +138,33 @@ impl<T: Default + 'static> Node<T> for GatherNode<T> {
         let data = data.map(|arr| &*arr);
         let indices = indices.map(|arr| &*arr);
 
-        if let (Some(data), Some(indices), Some(o)) = (data, indices, o) {
-            if let (Some(data_shape), Some(idx_shape)) = (data.shape(), indices.shape()) {
-                let ndim = data_shape.len() as i64;
-                let axis = if self.axis < 0 {
-                    (ndim + self.axis) as usize
-                } else {
-                    self.axis as usize
-                };
+        if let (Some(data), Some(indices), Some(o)) = (data, indices, o)
+            && let (Some(data_shape), Some(idx_shape)) = (data.shape(), indices.shape())
+        {
+            let ndim = data_shape.len() as i64;
+            let axis = if self.axis < 0 {
+                (ndim + self.axis) as usize
+            } else {
+                self.axis as usize
+            };
 
-                let mut out_shape: Vec<usize> = Vec::new();
-                for i in 0..axis {
-                    out_shape.push(data_shape[i]);
-                }
-                for &s in idx_shape {
-                    out_shape.push(s);
-                }
-                for i in (axis + 1)..data_shape.len() {
-                    out_shape.push(data_shape[i]);
-                }
-                if out_shape.is_empty() {
-                    out_shape.push(1);
-                }
-
-                *o = TypedArray::empty_with_others_type(data, &out_shape);
+            let mut out_shape: Vec<usize> = Vec::new();
+            for i in data_shape.iter().take(axis) {
+                out_shape.push(*i);
             }
-        }
+            for &s in idx_shape {
+                out_shape.push(s);
+            }
+            for i in data_shape.iter().skip(axis + 1) {
+                out_shape.push(*i);
+            }
+            if out_shape.is_empty() {
+                out_shape.push(1);
+            }
 
+            *o = TypedArray::empty_with_others_type(data, &out_shape);
+        }
+        
         if let Some(list) = &mut self.next_node {
             for next in list {
                 next.determine_output_shape(omap);

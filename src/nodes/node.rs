@@ -20,7 +20,7 @@ pub trait Node<T: Default + 'static>: Send + Sync {
             } else {
                 let ptr = UnsafeSendMut(omap as *mut TensorMap);
 
-                children.par_iter().for_each(|branch: &Box<dyn Node<T>>| {
+                children.par_iter().for_each(|branch| {
                     let map = unsafe { ptr.as_mut() };
                     branch.pass(map);
                 });

@@ -148,30 +148,30 @@ impl<T: Default + 'static> Node<T> for ArgMaxNode<T> {
         let [x, o] = omap.get_disjoint_mut([&self.data, &self.o]);
         let x = x.map(|arr| &*arr);
 
-        if let (Some(x), Some(o)) = (x, o) {
-            if let Some(in_shape) = x.shape() {
-                let ndim = in_shape.len() as i64;
-                let axis = if self.axis < 0 {
-                    (ndim + self.axis) as usize
-                } else {
-                    self.axis as usize
-                };
+        if let (Some(x), Some(o)) = (x, o)
+            && let Some(in_shape) = x.shape()
+        {
+            let ndim = in_shape.len() as i64;
+            let axis = if self.axis < 0 {
+                (ndim + self.axis) as usize
+            } else {
+                self.axis as usize
+            };
 
-                let mut out_shape: Vec<usize> = in_shape.to_vec();
-                if self.keepdims {
-                    out_shape[axis] = 1;
-                } else {
-                    out_shape.remove(axis);
-                }
-
-                *o = TypedArray::I64(ArrayD::zeros(IxDyn(&out_shape)));
+            let mut out_shape: Vec<usize> = in_shape.to_vec();
+            if self.keepdims {
+                out_shape[axis] = 1;
+            } else {
+                out_shape.remove(axis);
             }
+
+            *o = TypedArray::I64(ArrayD::zeros(IxDyn(&out_shape)));
         }
 
         if let Some(list) = &mut self.next_node {
             for next in list {
                 next.determine_output_shape(omap);
-            } 
+            }
         }
     }
 }

@@ -12,10 +12,11 @@ use crate::{
     typed_array::TypedArray,
 };
 use anyhow::Ok;
-use ndarray::ArrayD;
+use ndarray::{ArrayD, IxDyn};
 use onnx_extractor::OnnxModel;
 use saker_rs::activations::Activation;
 
+#[derive(Default)]
 pub struct GraphForm<T: Default> {
     // nodes: Vec<Box<dyn Node<T>>>,
     nodes: Option<Vec<Box<dyn Node<T>>>>,
@@ -23,7 +24,7 @@ pub struct GraphForm<T: Default> {
 
 impl<T: Default + 'static> GraphForm<T> {
     pub fn new() -> Self {
-        Self { nodes: None }
+        Self::default()
     }
 
     pub fn insert(&mut self, node: Box<dyn Node<T>>) {
@@ -60,42 +61,10 @@ impl<T: Default + 'static> GraphForm<T> {
     pub fn load_data_arrays(onnx: &OnnxModel, input_shape: Option<&[i64]>) -> TensorMap {
         let mut map = TensorMap::new();
 
-        onnx.get_input_tensors().iter().for_each(|tensor| {
-            let mut shape = tensor.shape().to_owned();
-
-            if let Some(in_shape) = input_shape {
-                if !in_shape.iter().all(|item| *item > 0) {
-                    panic!("You inserted negative shape values");
-                }
-                shape.iter_mut().zip(in_shape).for_each(|(tensor, input)| {
-                    if *tensor < 0 && *input > 0 {
-                        *tensor = *input;
-                    } else if *tensor != *input {
-                        panic!("different specified shape members !");
-                    }
-                });
-            }
-
-            let shape = shape.as_slice();
-
-            if tensor.data().is_ok() {
-                map.insert(tensor.name().to_string(), TypedArray::from_tensor(&tensor));
-            } else if shape.iter().any(|&d| d < 0) {
-                map.insert(tensor.name().to_string(), TypedArray::Undefined);
-            } else if !shape.is_empty() {
-                map.insert(
-                    tensor.name().to_string(),
-                    TypedArray::from_tensor_empty(tensor, shape),
-                );
-            } else {
-                map.insert(tensor.name().to_string(), TypedArray::Undefined);
-            }
-        });
-
         onnx.get_output_tensors().iter().for_each(|tensor| {
             let shape = tensor.shape();
             if tensor.data().is_ok() {
-                map.insert(tensor.name().to_string(), TypedArray::from_tensor(&tensor));
+                map.insert(tensor.name().to_string(), TypedArray::from_tensor(tensor));
             } else if shape.iter().any(|&d| d < 0) {
                 map.insert(tensor.name().to_string(), TypedArray::Undefined);
             } else if !shape.is_empty() {
@@ -131,6 +100,36 @@ impl<T: Default + 'static> GraphForm<T> {
                     map.insert(tensor.name().to_string(), TypedArray::Undefined);
                 }
             }
+        });
+
+        onnx.get_input_tensors().iter().for_each(|tensor| {
+            println!("{}", tensor.name());
+            let mut shape = tensor.shape().to_owned();
+            println!("{shape:?}");
+            println!("in-{input_shape:?}");
+            if let Some(in_shape) = input_shape {
+                if !in_shape.iter().all(|item| *item > 0) {
+                    panic!("You inserted negative shape values");
+                }
+                shape.iter_mut().zip(in_shape).for_each(|(tensor, input)| {
+                    if *tensor < 0 && *input > 0 {
+                        *tensor = *input;
+                    } else if *tensor != *input {
+                        panic!("different specified shape members !");
+                    }
+                });
+            }
+
+            let binding = shape
+                .iter()
+                .map(|inner| *inner as usize)
+                .collect::<Vec<usize>>();
+            let shape = binding.as_slice();
+            println!("{shape:?}");
+            map.insert(
+                tensor.name().to_string(),
+                TypedArray::F32(ArrayD::zeros(IxDyn(shape))),
+            );
         });
 
         map

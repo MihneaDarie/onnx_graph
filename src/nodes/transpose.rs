@@ -141,29 +141,29 @@ impl<T: Default + 'static> Node<T> for TransposeNode<T> {
         let [x, o] = omap.get_disjoint_mut([&self.input, &self.o]);
         let x = x.map(|arr| &*arr);
 
-        if let (Some(x), Some(o)) = (x, o) {
-            if let Some(in_shape) = x.shape() {
-                let ndim = in_shape.len() as i64;
-                let perm: Vec<usize> = if self.perm.is_empty() {
-                    (0..in_shape.len()).rev().collect()
-                } else {
-                    self.perm
-                        .iter()
-                        .map(|&p| {
-                            if p < 0 {
-                                (ndim + p) as usize
-                            } else {
-                                p as usize
-                            }
-                        })
-                        .collect()
-                };
+        if let (Some(x), Some(o)) = (x, o)
+            && let Some(in_shape) = x.shape()
+        {
+            let ndim = in_shape.len() as i64;
+            let perm: Vec<usize> = if self.perm.is_empty() {
+                (0..in_shape.len()).rev().collect()
+            } else {
+                self.perm
+                    .iter()
+                    .map(|&p| {
+                        if p < 0 {
+                            (ndim + p) as usize
+                        } else {
+                            p as usize
+                        }
+                    })
+                    .collect()
+            };
 
-                let out_shape: Vec<usize> = perm.iter().map(|&p| in_shape[p]).collect();
-                *o = TypedArray::empty_with_others_type(x, &out_shape);
-            }
+            let out_shape: Vec<usize> = perm.iter().map(|&p| in_shape[p]).collect();
+            *o = TypedArray::empty_with_others_type(x, &out_shape);
         }
-        
+
         if let Some(list) = &mut self.next_node {
             for next in list {
                 next.determine_output_shape(omap);

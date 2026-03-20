@@ -135,32 +135,32 @@ impl<T: Default + 'static> Node<T> for ShapeNode<T> {
         let [x, o] = omap.get_disjoint_mut([&self.data, &self.o]);
         let x = x.map(|arr| &*arr);
 
-        if let (Some(x), Some(o)) = (x, o) {
-            if let Some(in_shape) = x.shape() {
-                let r = in_shape.len() as i64;
+        if let (Some(x), Some(o)) = (x, o)
+            && let Some(in_shape) = x.shape()
+        {
+            let r = in_shape.len() as i64;
 
-                let start = if self.start < 0 {
-                    (r + self.start).max(0) as usize
-                } else {
-                    (self.start as usize).min(r as usize)
-                };
+            let start = if self.start < 0 {
+                (r + self.start).max(0) as usize
+            } else {
+                (self.start as usize).min(r as usize)
+            };
 
-                let end = match self.end {
-                    Some(e) => {
-                        if e < 0 {
-                            (r + e).max(0) as usize
-                        } else {
-                            (e as usize).min(r as usize)
-                        }
+            let end = match self.end {
+                Some(e) => {
+                    if e < 0 {
+                        (r + e).max(0) as usize
+                    } else {
+                        (e as usize).min(r as usize)
                     }
-                    None => r as usize,
-                };
+                }
+                None => r as usize,
+            };
 
-                let len = if start >= end { 0 } else { end - start };
-                *o = TypedArray::I64(ArrayD::zeros(IxDyn(&[len])));
-            }
+            let len = end.saturating_sub(start);
+            *o = TypedArray::I64(ArrayD::zeros(IxDyn(&[len])));
         }
-        
+
         if let Some(list) = &mut self.next_node {
             for next in list {
                 next.determine_output_shape(omap);

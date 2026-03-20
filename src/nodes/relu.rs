@@ -2,7 +2,8 @@ use std::any::Any;
 
 use crate::{
     nodes::{node::Node, unique_ids::UniqueId},
-    tensor_map::TensorMap, typed_array::TypedArray,
+    tensor_map::TensorMap,
+    typed_array::TypedArray,
 };
 
 #[derive(Default)]
@@ -110,7 +111,7 @@ impl<T: Default + 'static> Node<T> for ReluNode<T> {
 
         match o {
             Some(result) => {
-                x.silu(result).unwrap();
+                x.relu(result).unwrap();
             }
             None => panic!("ReluNode: missing input {}", self.x),
         }
@@ -120,16 +121,16 @@ impl<T: Default + 'static> Node<T> for ReluNode<T> {
         let [x, o] = omap.get_disjoint_mut([&self.x, &self.o]);
         let x = x.map(|arr| &*arr);
 
-        if let (Some(x), Some(o)) = (x, o) {
-            if let Some(in_shape) = x.shape() {
-                *o = TypedArray::empty_with_others_type(x, in_shape);
-            }
+        if let (Some(x), Some(o)) = (x, o)
+            && let Some(in_shape) = x.shape()
+        {
+            *o = TypedArray::empty_with_others_type(x, in_shape);
         }
 
         if let Some(list) = &mut self.next_node {
             for next in list {
                 next.determine_output_shape(omap);
-            } 
+            }
         }
     }
 }

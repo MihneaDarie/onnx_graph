@@ -140,16 +140,16 @@ impl<T: Default + 'static> Node<T> for SubNode<T> {
         let [a, o] = omap.get_disjoint_mut([&self.a, &self.o]);
         let a = a.map(|arr| &*arr);
 
-        if let (Some(a), Some(o)) = (a, o) {
-            if let Some(in_shape) = a.shape() {
-                *o = TypedArray::empty_with_others_type(a, in_shape);
-            }
+        if let (Some(a), Some(o)) = (a, o)
+            && let Some(in_shape) = a.shape()
+        {
+            *o = TypedArray::empty_with_others_type(a, in_shape);
         }
 
         if let Some(list) = &mut self.next_node {
             for next in list {
                 next.determine_output_shape(omap);
-            } 
+            }
         }
     }
 }

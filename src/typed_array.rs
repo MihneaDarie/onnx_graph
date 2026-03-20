@@ -865,14 +865,70 @@ impl TypedArray {
         allow_zero: bool,
         o: &mut TypedArray,
     ) -> anyhow::Result<()> {
+        let shape_arr = match shape {
+            TypedArray::I64(s) => s,
+            _ => return Err(anyhow::anyhow!("reshape shape tensor must be I64")),
+        };
+
+        let (current_size, current_shape) = match self {
+            TypedArray::F32(a) => (a.len(), a.shape().to_vec()),
+            TypedArray::F64(a) => (a.len(), a.shape().to_vec()),
+            TypedArray::I32(a) => (a.len(), a.shape().to_vec()),
+            TypedArray::I64(a) => (a.len(), a.shape().to_vec()),
+            TypedArray::U8(a) => (a.len(), a.shape().to_vec()),
+            TypedArray::U16(a) => (a.len(), a.shape().to_vec()),
+            TypedArray::U32(a) => (a.len(), a.shape().to_vec()),
+            TypedArray::U64(a) => (a.len(), a.shape().to_vec()),
+            _ => return Err(anyhow::anyhow!("unsupported type for reshape")),
+        };
+
+        let mut new_shape: Vec<usize> = shape_arr
+            .iter()
+            .enumerate()
+            .map(|(i, &dim)| {
+                if dim == -1 {
+                    0
+                } else if dim == 0 {
+                    if allow_zero {
+                        0
+                    } else {
+                        *current_shape.get(i).unwrap_or(&0)
+                    }
+                } else {
+                    dim as usize
+                }
+            })
+            .collect();
+
+        if let Some(idx) = shape_arr.iter().position(|&d| d == -1) {
+            let known: usize = new_shape
+                .iter()
+                .enumerate()
+                .filter(|&(i, _)| i != idx)
+                .map(|(_, &d)| if d == 0 { 1 } else { d })
+                .product();
+            new_shape[idx] = current_size / known;
+        }
+
         macro_rules! reshape_variant {
             ($variant:ident, $a:expr) => {{
-                if let TypedArray::$variant(out) = o {
-                    let dst = out.as_slice_memory_order_mut().unwrap();
-                    let src = $a.as_slice_memory_order().unwrap();
-                    dst.par_iter_mut()
-                        .zip(src.par_iter())
-                        .for_each(|(d, s)| *d = *s);
+                let src = $a.as_slice_memory_order().unwrap();
+
+                let needs_realloc = match &*o {
+                    TypedArray::$variant(out) => out.shape() != new_shape.as_slice(),
+                    _ => true,
+                };
+
+                if needs_realloc {
+                    *o = TypedArray::$variant(ArrayD::from_shape_vec(
+                        IxDyn(&new_shape),
+                        src.to_vec(),
+                    )?);
+                } else {
+                    if let TypedArray::$variant(out) = o {
+                        let dst = out.as_slice_memory_order_mut().unwrap();
+                        dst.copy_from_slice(src);
+                    }
                 }
             }};
         }
@@ -1027,6 +1083,60 @@ impl TypedArray {
             });
     }
 
+    fn im2col_general(
+        input: &[f32],
+        cin: usize,
+        hin: usize,
+        win: usize,
+        kh: usize,
+        kw: usize,
+        sh: usize,
+        sw: usize,
+        ph: usize,
+        pw: usize,
+        hout: usize,
+        wout: usize,
+        col_buffer: &mut [f32],
+    ) {
+        let ksize = kh * kw;
+        let hw_out = hout * wout;
+
+        col_buffer
+            .par_chunks_mut(ksize * hw_out)
+            .enumerate()
+            .for_each(|(ic, chunk)| {
+                let in_c_base = ic * hin * win;
+
+                for ky in 0..kh {
+                    for kx in 0..kw {
+                        let k_idx = ky * kw + kx;
+                        let col_row = &mut chunk[k_idx * hw_out..(k_idx + 1) * hw_out];
+
+                        for oy in 0..hout {
+                            let iy = (oy * sh + ky) as isize - ph as isize;
+                            let out_row_start = oy * wout;
+
+                            if iy < 0 || iy >= hin as isize {
+                                for ox in 0..wout {
+                                    col_row[out_row_start + ox] = 0.0;
+                                }
+                            } else {
+                                let in_row_base = in_c_base + (iy as usize) * win;
+                                for ox in 0..wout {
+                                    let ix = (ox * sw + kx) as isize - pw as isize;
+                                    col_row[out_row_start + ox] = if ix < 0 || ix >= win as isize {
+                                        0.0
+                                    } else {
+                                        unsafe { *input.get_unchecked(in_row_base + ix as usize) }
+                                    };
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+    }
+
     pub fn conv_silu_into(
         x: &ArrayView4<f32>,
         w: &ArrayView4<f32>,
@@ -1048,26 +1158,31 @@ impl TypedArray {
             sgemm_bias_parallel(cout, hw, cin, ws, xs, bias, out_sl, activation);
             return Ok(());
         }
+        let hw = hin * win;
 
         let hout = (hin + 2 * cfg.pad - kh) / cfg.stride + 1;
         let wout = (win + 2 * cfg.pad - kw) / cfg.stride + 1;
         let hw_out = hout * wout;
+        let k_dim = cin * kh * kw;
 
         let xs = x.as_slice_memory_order().unwrap();
         let ws = w.as_slice_memory_order().unwrap();
         let out_sl = out.as_slice_memory_order_mut().unwrap();
 
-        let col_size = cin * 9 * hw_out;
+        let col_size = k_dim * hw_out;
         Self::run_func_with_f32_buffer(col_size, |col_buffer| {
-            if cfg.stride == 1 && cfg.pad == 1 {
+            if kh == 3 && kw == 3 && cfg.stride == 1 && cfg.pad == 1 {
                 Self::im2col_3x3_s1p1(xs, hin, win, col_buffer);
-            } else if cfg.stride == 2 && cfg.pad == 1 {
+            } else if kh == 3 && kw == 3 && cfg.stride == 2 && cfg.pad == 1 {
                 Self::im2col_3x3_s2p1(xs, hin, win, hout, wout, col_buffer);
+            } else {
+                Self::im2col_general(
+                    xs, cin, hin, win, kh, kw, cfg.stride, cfg.stride, cfg.pad, cfg.pad, hout,
+                    wout, col_buffer,
+                );
             }
 
-            let k_dim = cin * 9;
             let bias = conv_bias.as_ref().map(|b| b.as_slice().unwrap());
-
             sgemm_bias_parallel(
                 cout, hw_out, k_dim, ws, col_buffer, bias, out_sl, activation,
             );
@@ -1136,59 +1251,37 @@ impl TypedArray {
 
         let b_ready: Vec<f32>;
         let b_ptr = if trans_b {
-            b_sl
-        } else {
             let rows = b_shape[0];
             let cols = b_shape[1];
             b_ready = (0..cols)
                 .flat_map(|i| (0..rows).map(move |j| b_sl[j * cols + i]))
                 .collect();
             &b_ready[..]
+        } else {
+            b_sl
         };
 
-        let scaled_bias: Vec<f32>;
-        let bias = if let Some(TypedArray::F32(c_arr)) = c {
-            let c_sl = c_arr.as_slice_memory_order().unwrap();
-            if c_arr.len() == n {
-                if beta == 1.0 {
-                    Some(c_sl)
-                } else {
-                    scaled_bias = c_sl.iter().map(|&v| beta * v).collect();
-                    Some(&scaled_bias[..])
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        };
+        sgemm_bias_parallel(m, n, k, a_ptr, b_ptr, None, out_sl, Activation::None);
 
-        if alpha == 1.0 {
-            sgemm_bias_parallel(m, n, k, a_ptr, b_ptr, bias, out_sl, Activation::None);
-        } else {
-            sgemm_bias_parallel(m, n, k, a_ptr, b_ptr, None, out_sl, Activation::None);
+        if alpha != 1.0 {
             out_sl.iter_mut().for_each(|v| *v *= alpha);
-
-            if let Some(bias_sl) = bias {
-                for row in 0..m {
-                    let offset = row * n;
-                    for col in 0..n {
-                        out_sl[offset + col] += bias_sl[col];
-                    }
-                }
-            }
         }
 
         if let Some(TypedArray::F32(c_arr)) = c {
-            if c_arr.len() != n {
-                let c_sl = c_arr.as_slice_memory_order().unwrap();
-                if c_arr.len() == 1 {
-                    let val = beta * c_sl[0];
-                    out_sl.iter_mut().for_each(|v| *v += val);
-                } else if c_arr.len() == m * n {
-                    for i in 0..m * n {
-                        out_sl[i] += beta * c_sl[i];
+            let c_sl = c_arr.as_slice_memory_order().unwrap();
+            if c_arr.len() == n {
+                for row in 0..m {
+                    let offset = row * n;
+                    for col in 0..n {
+                        out_sl[offset + col] += beta * c_sl[col];
                     }
+                }
+            } else if c_arr.len() == 1 {
+                let val = beta * c_sl[0];
+                out_sl.iter_mut().for_each(|v| *v += val);
+            } else if c_arr.len() == m * n {
+                for i in 0..m * n {
+                    out_sl[i] += beta * c_sl[i];
                 }
             }
         }
@@ -1509,7 +1602,7 @@ impl Display for TypedArray {
             TypedArray::U16(array_base) => write!(f, "{:?}", array_base.shape()),
             TypedArray::I16(array_base) => write!(f, "{:?}", array_base.shape()),
             TypedArray::I32(array_base) => write!(f, "{:?}", array_base.shape()),
-            TypedArray::I64(array_base) => write!(f, "{:?}", array_base.shape()),
+            TypedArray::I64(array_base) => write!(f, "{:?}", array_base.get(0)),
             TypedArray::String(array_base) => write!(f, "{:?}", array_base.shape()),
             TypedArray::BOOL(array_base) => write!(f, "{:?}", array_base.shape()),
             TypedArray::F64(array_base) => write!(f, "{:?}", array_base.shape()),

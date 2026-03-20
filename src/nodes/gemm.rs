@@ -171,13 +171,13 @@ impl<T: Default + 'static> Node<T> for GemmNode<T> {
         let a = a.map(|arr| &*arr);
         let b = b.map(|arr| &*arr);
 
-        if let (Some(a), Some(b), Some(o)) = (a, b, o) {
-            if let (Some(a_shape), Some(b_shape)) = (a.shape(), b.shape()) {
-                let m = if self.trans_a { a_shape[1] } else { a_shape[0] };
-                let n = if self.trans_b { b_shape[0] } else { b_shape[1] };
+        if let (Some(a), Some(b), Some(o)) = (a, b, o)
+            && let (Some(a_shape), Some(b_shape)) = (a.shape(), b.shape())
+        {
+            let m = if self.trans_a { a_shape[1] } else { a_shape[0] };
+            let n = if self.trans_b { b_shape[0] } else { b_shape[1] };
 
-                *o = TypedArray::empty_with_others_type(a, &[m, n]);
-            }
+            *o = TypedArray::empty_with_others_type(a, &[m, n]);
         }
         if let Some(list) = &mut self.next_node {
             for next in list {

@@ -138,8 +138,8 @@ impl<T: Default + 'static> Node<T> for DivNode<T> {
     fn determine_output_shape(&mut self, omap: &mut TensorMap) {
         let [a, o] = omap.get_disjoint_mut([&self.a, &self.o]);
         let a = a.map(|arr| &*arr);
-
         if let (Some(a), Some(o)) = (a, o) {
+            println!("{:?}", a.shape());
             if let Some(in_shape) = a.shape() {
                 *o = TypedArray::empty_with_others_type(a, in_shape);
             }
