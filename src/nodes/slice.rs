@@ -6,6 +6,7 @@ use crate::{
     typed_array::TypedArray,
 };
 use anyhow::Result;
+use onnx_extractor::OnnxOperation;
 
 #[derive(Default)]
 pub struct SliceNode<T: Default> {
@@ -22,8 +23,8 @@ pub struct SliceNode<T: Default> {
 }
 
 impl<T: Default> SliceNode<T> {
-    pub fn new() -> Self {
-        Self {
+    pub fn new(elem: &OnnxOperation) -> Self {
+        let mut slice = Self {
             data: String::new(),
             starts: String::new(),
             ends: String::new(),
@@ -31,7 +32,16 @@ impl<T: Default> SliceNode<T> {
             o: String::new(),
             unique_id: UniqueId::Slice,
             next_node: None,
-        }
+        };
+        let input = &elem.inputs;
+        slice.add_input_strings(
+            input[0].clone(),
+            input[1].clone(),
+            input[2].clone(),
+            input[3].clone(),
+        );
+        slice.add_output_strings(elem.outputs[0].clone());
+        slice
     }
     pub fn add_input_strings(&mut self, data: String, starts: String, ends: String, axes: String) {
         self.data = data;

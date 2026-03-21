@@ -1,5 +1,7 @@
 use std::any::Any;
 
+use onnx_extractor::OnnxOperation;
+
 use crate::{
     nodes::{node::Node, unique_ids::UniqueId},
     tensor_map::TensorMap,
@@ -18,13 +20,16 @@ pub struct ReluNode<T: Default> {
 }
 
 impl<T: Default> ReluNode<T> {
-    pub fn new() -> Self {
-        Self {
+    pub fn new(elem: &OnnxOperation) -> Self {
+        let mut relu = Self {
             x: String::new(),
             o: String::new(),
             unique_id: UniqueId::Relu,
             next_node: None,
-        }
+        };
+        relu.add_input_strings(elem.inputs[0].clone());
+        relu.add_output_strings(elem.outputs[0].clone());
+        relu
     }
 
     pub fn add_input_strings(&mut self, x: String) {

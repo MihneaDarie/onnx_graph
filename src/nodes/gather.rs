@@ -8,7 +8,7 @@ use crate::{
 
 use anyhow::{Ok, Result};
 use ndarray::{ArrayD, IxDyn};
-use onnx_extractor::AttributeValue;
+use onnx_extractor::{AttributeValue, OnnxOperation};
 
 #[derive(Default)]
 pub struct GatherNode<T: Default> {
@@ -23,15 +23,18 @@ pub struct GatherNode<T: Default> {
 }
 
 impl<T: Default> FromHashMap for GatherNode<T> {
-    fn from_hashmap(attrs: &HashMap<String, AttributeValue>) -> Result<Self> {
-        Ok(Self {
+    fn from_hashmap(attrs: &HashMap<String, AttributeValue>, elem: &OnnxOperation) -> Result<Self> {
+        let mut gather = Self {
             data: String::new(),
             indices: String::new(),
             o: String::new(),
             axis: attrs.get("axis").and_then(|v| v.as_int()).unwrap_or(0),
             unique_id: UniqueId::Gather,
             next_node: None,
-        })
+        };
+        gather.add_input_strings(elem.inputs[0].clone(), elem.inputs[1].clone());
+        gather.add_output_strings(elem.outputs[0].clone());
+        Ok(gather)
     }
 }
 
@@ -164,7 +167,7 @@ impl<T: Default + 'static> Node<T> for GatherNode<T> {
 
             *o = TypedArray::empty_with_others_type(data, &out_shape);
         }
-        
+
         if let Some(list) = &mut self.next_node {
             for next in list {
                 next.determine_output_shape(omap);

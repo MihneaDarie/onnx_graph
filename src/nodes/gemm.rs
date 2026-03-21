@@ -8,7 +8,7 @@ use crate::{
 
 use anyhow::{Ok, Result};
 use ndarray::{ArrayD, IxDyn};
-use onnx_extractor::AttributeValue;
+use onnx_extractor::{AttributeValue, OnnxOperation};
 use saker_rs::activations::Activation;
 
 #[derive(Default)]
@@ -29,8 +29,8 @@ pub struct GemmNode<T: Default> {
 }
 
 impl<T: Default> FromHashMap for GemmNode<T> {
-    fn from_hashmap(attrs: &HashMap<String, AttributeValue>) -> Result<Self> {
-        Ok(Self {
+    fn from_hashmap(attrs: &HashMap<String, AttributeValue>, elem: &OnnxOperation) -> Result<Self> {
+        let mut gemm = Self {
             a: String::new(),
             b: String::new(),
             c: None,
@@ -41,7 +41,12 @@ impl<T: Default> FromHashMap for GemmNode<T> {
             trans_b: attrs.get("transB").and_then(|v| v.as_int()).unwrap_or(0) != 0,
             unique_id: UniqueId::Gemm,
             next_node: None,
-        })
+        };
+        let inputs = &elem.inputs;
+        let b = inputs.get(2).cloned();
+        gemm.add_input_strings(inputs[0].clone(), inputs[1].clone(), b);
+        gemm.add_output_strings(elem.outputs[0].clone());
+        Ok(gemm)
     }
 }
 

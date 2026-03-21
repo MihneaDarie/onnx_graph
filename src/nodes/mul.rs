@@ -6,6 +6,7 @@ use crate::{
     typed_array::TypedArray,
 };
 use anyhow::Result;
+use onnx_extractor::OnnxOperation;
 use saker_rs::linarg::operations::mul_maybe_simd;
 
 #[derive(Default)]
@@ -21,14 +22,17 @@ pub struct MulNode<T: Default> {
 }
 
 impl<T: Default> MulNode<T> {
-    pub fn new() -> Self {
-        Self {
+    pub fn new(elem: &OnnxOperation) -> Self {
+        let mut mul = Self {
             a: String::new(),
             b: String::new(),
             o: String::new(),
             unique_id: UniqueId::Mul,
             next_node: None,
-        }
+        };
+        mul.add_input_strings(elem.inputs[0].clone(), elem.inputs[1].clone());
+        mul.add_output_strings(elem.outputs[0].clone());
+        mul
     }
 
     pub fn add_input_strings(&mut self, a: String, b: String) {

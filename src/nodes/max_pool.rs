@@ -8,7 +8,7 @@ use crate::{
 use anyhow::Result;
 use ndarray::Ix4;
 use ndarray::{ArrayView4, ArrayViewMut4};
-use onnx_extractor::AttributeValue;
+use onnx_extractor::{AttributeValue, OnnxOperation};
 use rayon::iter::IndexedParallelIterator;
 use rayon::iter::ParallelIterator;
 use rayon::prelude::ParallelSliceMut;
@@ -56,8 +56,9 @@ pub struct MaxPoolNode<T: Default> {
 impl<T: Default> FromHashMap for MaxPoolNode<T> {
     fn from_hashmap(
         attrs: &std::collections::HashMap<String, AttributeValue>,
+        elem: &OnnxOperation,
     ) -> anyhow::Result<Self> {
-        Ok(Self {
+        let mut max_pool = Self {
             x: String::new(),
             o: String::new(),
             auto_pad: {
@@ -127,7 +128,11 @@ impl<T: Default> FromHashMap for MaxPoolNode<T> {
             },
             unique_id: UniqueId::MaxPool,
             next_node: None,
-        })
+        };
+        max_pool.add_input_strings(elem.inputs[0].clone());
+        max_pool.add_output_strings(elem.outputs[0].clone());
+
+        Ok(max_pool)
     }
 }
 

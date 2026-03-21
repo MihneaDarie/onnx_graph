@@ -8,7 +8,7 @@ use crate::{
 
 use anyhow::{Ok, Result};
 use ndarray::{ArrayD, IxDyn};
-use onnx_extractor::AttributeValue;
+use onnx_extractor::{AttributeValue, OnnxOperation};
 
 #[derive(Default)]
 pub struct ShapeNode<T: Default> {
@@ -23,15 +23,18 @@ pub struct ShapeNode<T: Default> {
 }
 
 impl<T: Default> FromHashMap for ShapeNode<T> {
-    fn from_hashmap(attrs: &HashMap<String, AttributeValue>) -> Result<Self> {
-        Ok(Self {
+    fn from_hashmap(attrs: &HashMap<String, AttributeValue>, elem: &OnnxOperation) -> Result<Self> {
+        let mut shape = Self {
             data: String::new(),
             o: String::new(),
             start: attrs.get("start").and_then(|v| v.as_int()).unwrap_or(0),
             end: attrs.get("end").and_then(|v| v.as_int()),
             unique_id: UniqueId::Shape,
             next_node: None,
-        })
+        };
+        shape.add_input_strings(elem.inputs[0].clone());
+        shape.add_output_strings(elem.outputs[0].clone());
+        Ok(shape)
     }
 }
 

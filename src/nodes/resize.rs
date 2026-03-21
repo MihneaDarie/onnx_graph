@@ -6,7 +6,7 @@ use crate::{
     typed_array::TypedArray,
 };
 use anyhow::{Ok, Result};
-use onnx_extractor::AttributeValue;
+use onnx_extractor::{AttributeValue, OnnxOperation};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Mode {
@@ -119,8 +119,13 @@ pub struct ResizeNode<T: Default> {
 }
 
 impl<T: Default> FromHashMap for ResizeNode<T> {
-    fn from_hashmap(attrs: &HashMap<String, AttributeValue>) -> Result<Self> {
-        Ok(Self {
+    fn from_hashmap(attrs: &HashMap<String, AttributeValue>, elem: &OnnxOperation) -> Result<Self> {
+        let inputs = &elem.inputs;
+        let roi = inputs.get(1).filter(|s| !s.is_empty()).cloned();
+        let scales = inputs.get(2).filter(|s| !s.is_empty()).cloned();
+        let sizes = inputs.get(3).filter(|s| !s.is_empty()).cloned();
+
+        let mut resize = Self {
             x: String::new(),
             roi: None,
             scales: None,
@@ -175,7 +180,12 @@ impl<T: Default> FromHashMap for ResizeNode<T> {
                 None => CoordinateTransformationMode::default(),
             },
             next_node: None,
-        })
+        };
+
+        resize.add_input_strings(inputs[0].clone(), roi, scales, sizes);
+        resize.add_output_strings(elem.outputs[0].clone());
+
+        Ok(resize)
     }
 }
 

@@ -8,7 +8,7 @@ use crate::{
 
 use anyhow::{Ok, Result};
 use ndarray::{ArrayD, Axis, IxDyn};
-use onnx_extractor::AttributeValue;
+use onnx_extractor::{AttributeValue, OnnxOperation};
 
 #[derive(Default)]
 pub struct ArgMaxNode<T: Default> {
@@ -24,8 +24,8 @@ pub struct ArgMaxNode<T: Default> {
 }
 
 impl<T: Default> FromHashMap for ArgMaxNode<T> {
-    fn from_hashmap(attrs: &HashMap<String, AttributeValue>) -> Result<Self> {
-        Ok(Self {
+    fn from_hashmap(attrs: &HashMap<String, AttributeValue>, elem: &OnnxOperation) -> Result<Self> {
+        let mut argmax = Self {
             data: String::new(),
             o: String::new(),
             axis: attrs.get("axis").and_then(|v| v.as_int()).unwrap_or(0),
@@ -37,7 +37,10 @@ impl<T: Default> FromHashMap for ArgMaxNode<T> {
                 != 0,
             unique_id: UniqueId::ArgMax,
             next_node: None,
-        })
+        };
+        argmax.add_input_strings(elem.inputs[0].clone());
+        argmax.add_output_strings(elem.outputs[0].clone());
+        Ok(argmax)
     }
 }
 

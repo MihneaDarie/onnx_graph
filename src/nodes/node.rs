@@ -1,6 +1,7 @@
 use std::{any::Any, collections::HashMap};
 
 use anyhow::{Ok, Result};
+use onnx_extractor::OnnxOperation;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 use crate::{

@@ -5,8 +5,8 @@ use crate::{
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
-use anyhow::Result;
-use onnx_extractor::AttributeValue;
+use anyhow::{Ok, Result};
+use onnx_extractor::{AttributeValue, OnnxOperation};
 
 #[derive(Default)]
 pub struct ConcatNode<T> {
@@ -31,8 +31,8 @@ impl<T: Default> ConcatNode<T> {
 }
 
 impl<T: Default> FromHashMap for ConcatNode<T> {
-    fn from_hashmap(attrs: &HashMap<String, AttributeValue>) -> Result<Self> {
-        Ok(Self {
+    fn from_hashmap(attrs: &HashMap<String, AttributeValue>, elem: &OnnxOperation) -> Result<Self> {
+        let mut concat = Self {
             axis: {
                 match attrs.get("axis") {
                     Some(av) => av.as_int().unwrap(),
@@ -43,7 +43,10 @@ impl<T: Default> FromHashMap for ConcatNode<T> {
             inputs: vec![],
             o: String::new(),
             unique_id: UniqueId::Concat,
-        })
+        };
+        concat.add_input_strings(elem.inputs.clone());
+        concat.add_output_strings(elem.outputs[0].clone());
+        Ok(concat)
     }
 }
 

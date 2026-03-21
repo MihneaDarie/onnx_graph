@@ -6,7 +6,7 @@ use crate::{
     typed_array::TypedArray,
 };
 use anyhow::Result;
-use onnx_extractor::AttributeValue;
+use onnx_extractor::{AttributeValue, OnnxOperation};
 
 #[derive(Default)]
 pub struct TransposeNode<T: Default> {
@@ -22,8 +22,8 @@ pub struct TransposeNode<T: Default> {
 }
 
 impl<T: Default> FromHashMap for TransposeNode<T> {
-    fn from_hashmap(attrs: &HashMap<String, AttributeValue>) -> Result<Self> {
-        Ok(Self {
+    fn from_hashmap(attrs: &HashMap<String, AttributeValue>, elem: &OnnxOperation) -> Result<Self> {
+        let mut trans = Self {
             input: String::new(),
             o: String::new(),
             perm: match attrs.get("perm") {
@@ -32,7 +32,10 @@ impl<T: Default> FromHashMap for TransposeNode<T> {
             },
             unique_id: UniqueId::Transpose,
             next_node: None,
-        })
+        };
+        trans.add_input_strings(elem.inputs[0].clone());
+        trans.add_output_strings(elem.outputs[0].clone());
+        Ok(trans)
     }
 }
 

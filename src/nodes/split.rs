@@ -6,7 +6,7 @@ use crate::{
     typed_array::TypedArray,
 };
 use anyhow::Result;
-use onnx_extractor::AttributeValue;
+use onnx_extractor::{AttributeValue, OnnxOperation};
 
 #[derive(Default)]
 pub struct SplitNode<T: Default> {
@@ -24,8 +24,8 @@ pub struct SplitNode<T: Default> {
 }
 
 impl<T: Default> FromHashMap for SplitNode<T> {
-    fn from_hashmap(attrs: &HashMap<String, AttributeValue>) -> Result<Self> {
-        Ok(Self {
+    fn from_hashmap(attrs: &HashMap<String, AttributeValue>, elem: &OnnxOperation) -> Result<Self> {
+        let mut split = Self {
             input: String::new(),
             split: String::new(),
 
@@ -42,7 +42,12 @@ impl<T: Default> FromHashMap for SplitNode<T> {
                 None => 0,
             },
             next_node: None,
-        })
+        };
+
+        split.add_input_strings(elem.inputs[0].clone(), elem.inputs[1].clone());
+        split.add_output_strings(elem.outputs.clone());
+
+        Ok(split)
     }
 }
 
@@ -172,11 +177,10 @@ impl<T: Default + 'static> Node<T> for SplitNode<T> {
     }
 
     fn determine_output_shape(&mut self, omap: &mut TensorMap) {
-
         if let Some(list) = &mut self.next_node {
             for next in list {
                 next.determine_output_shape(omap);
-            } 
+            }
         }
     }
 }

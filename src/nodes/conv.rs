@@ -13,7 +13,7 @@ pub struct Conv2D {
 }
 
 use anyhow::{Ok, Result};
-use onnx_extractor::AttributeValue;
+use onnx_extractor::{AttributeValue, OnnxOperation};
 use saker_rs::activations::Activation;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -63,8 +63,9 @@ pub struct ConvNode<T: Default> {
 impl<T: Default> FromHashMap for ConvNode<T> {
     fn from_hashmap(
         attrs: &std::collections::HashMap<String, AttributeValue>,
+        elem: &OnnxOperation,
     ) -> anyhow::Result<Self> {
-        Ok(Self {
+        let mut conv = Self {
             x: String::new(),
             w: String::new(),
             b: None,
@@ -135,7 +136,12 @@ impl<T: Default> FromHashMap for ConvNode<T> {
             unique_id: UniqueId::Conv,
             activation: Activation::None,
             next_node: None,
-        })
+        };
+        let inputs = &elem.inputs;
+        let b = inputs.get(2).cloned();
+        conv.add_input_strings(inputs[0].clone(), inputs[1].clone(), b);
+        conv.add_output_strings(elem.outputs[0].clone());
+        Ok(conv)
     }
 }
 

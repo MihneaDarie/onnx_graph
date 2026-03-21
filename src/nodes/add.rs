@@ -7,6 +7,7 @@ use crate::{
 };
 
 use anyhow::Result;
+use onnx_extractor::OnnxOperation;
 use saker_rs::linarg::operations::add_maybe_simd;
 
 #[derive(Default)]
@@ -22,14 +23,17 @@ pub struct AddNode<T: Default> {
 }
 
 impl<T: Default> AddNode<T> {
-    pub fn new() -> Self {
-        Self {
+    pub fn new(elem: &OnnxOperation) -> Self {
+        let mut add = Self {
             a: String::new(),
             b: String::new(),
             o: String::new(),
             unique_id: UniqueId::Add,
             next_node: None,
-        }
+        };
+        add.add_input_strings(elem.inputs[0].clone(), elem.inputs[1].clone());
+        add.add_output_strings(elem.outputs[0].clone());
+        add
     }
 
     pub fn add_input_strings(&mut self, a: String, b: String) {

@@ -6,7 +6,7 @@ use crate::{
     typed_array::TypedArray,
 };
 use anyhow::Result;
-use onnx_extractor::AttributeValue;
+use onnx_extractor::{AttributeValue, OnnxOperation};
 
 #[derive(Default)]
 pub struct ReshapeNode<T: Default> {
@@ -22,8 +22,8 @@ pub struct ReshapeNode<T: Default> {
 }
 
 impl<T: Default> FromHashMap for ReshapeNode<T> {
-    fn from_hashmap(attrs: &HashMap<String, AttributeValue>) -> Result<Self> {
-        Ok(Self {
+    fn from_hashmap(attrs: &HashMap<String, AttributeValue>, elem: &OnnxOperation) -> Result<Self> {
+        let mut reshape = Self {
             data: String::new(),
             shape: String::new(),
 
@@ -36,7 +36,10 @@ impl<T: Default> FromHashMap for ReshapeNode<T> {
             },
             unique_id: UniqueId::Reshape,
             next_node: None,
-        })
+        };
+        reshape.add_input_strings(elem.inputs[0].clone(), elem.inputs[1].clone());
+        reshape.add_output_strings(elem.outputs[0].clone());
+        Ok(reshape)
     }
 }
 

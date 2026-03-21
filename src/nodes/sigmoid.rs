@@ -6,6 +6,7 @@ use crate::{
     typed_array::TypedArray,
 };
 use anyhow::Result;
+use onnx_extractor::OnnxOperation;
 
 #[derive(Default)]
 pub struct SigmoidNode<T: Default> {
@@ -19,13 +20,16 @@ pub struct SigmoidNode<T: Default> {
 }
 
 impl<T: Default> SigmoidNode<T> {
-    pub fn new() -> Self {
-        Self {
+    pub fn new(elem: &OnnxOperation) -> Self {
+        let mut sigmoid = Self {
             x: String::new(),
             o: String::new(),
             unique_id: UniqueId::Sigmoid,
             next_node: None,
-        }
+        };
+        sigmoid.add_input_strings(elem.inputs[0].clone());
+        sigmoid.add_output_strings(elem.outputs[0].clone());
+        sigmoid
     }
 
     pub fn add_input_strings(&mut self, x: String) {

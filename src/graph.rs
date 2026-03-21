@@ -13,7 +13,7 @@ use crate::{
 };
 use anyhow::Ok;
 use ndarray::{ArrayD, IxDyn};
-use onnx_extractor::OnnxModel;
+use onnx_extractor::{OnnxModel, OnnxOperation};
 use saker_rs::activations::Activation;
 
 #[derive(Default)]
@@ -135,6 +135,34 @@ impl<T: Default + 'static> GraphForm<T> {
         map
     }
 
+    fn get_specifc_node_from_operation(elem: &OnnxOperation) -> anyhow::Result<Box<dyn Node<T>>> {
+        let res: Box<dyn Node<T>> = match elem.op_type.as_str() {
+            "Concat" => Box::new(ConcatNode::from_hashmap(&elem.attributes, elem)?),
+            "Gather" => Box::new(GatherNode::from_hashmap(&elem.attributes, elem)?),
+            "Sigmoid" => Box::new(SigmoidNode::new(elem)),
+            "Relu" => Box::new(ReluNode::new(elem)),
+            "Conv" => Box::new(ConvNode::from_hashmap(&elem.attributes, elem)?),
+            "Gemm" => Box::new(GemmNode::from_hashmap(&elem.attributes, elem)?),
+            "Resize" => Box::new(ResizeNode::from_hashmap(&elem.attributes, elem)?),
+            "Transpose" => Box::new(TransposeNode::from_hashmap(&elem.attributes, &elem)?),
+            "Sub" => Box::new(SubNode::new(elem)),
+            "MaxPool" => Box::new(MaxPoolNode::from_hashmap(&elem.attributes, elem)?),
+            "Div" => Box::new(DivNode::new(elem)),
+            "ArgMax" => Box::new(ArgMaxNode::from_hashmap(&elem.attributes, elem)?),
+            "Softmax" => Box::new(SoftMaxNode::from_hashmap(&elem.attributes, &elem)?),
+            "Split" => Box::new(SplitNode::from_hashmap(&elem.attributes, elem)?),
+            "Add" => Box::new(AddNode::new(elem)),
+            "Mul" => Box::new(MulNode::new(elem)),
+            "Reshape" => Box::new(ReshapeNode::from_hashmap(&elem.attributes, elem)?),
+            "Shape" => Box::new(ShapeNode::from_hashmap(&elem.attributes, elem)?),
+            "Slice" => Box::new(SliceNode::new(elem)),
+            _ => {
+                panic!("Unsupported node with name {}", elem.name)
+            }
+        };
+        Ok(res)
+    }
+
     pub fn from_onnx_file(
         onnx_file_path: &str,
         input_shape: Option<&[i64]>,
@@ -144,140 +172,10 @@ impl<T: Default + 'static> GraphForm<T> {
 
         let mut map = Self::load_data_arrays(&onnx, input_shape);
 
-        onnx.execution_order()?
-            .into_iter()
-            .for_each(|elem| match elem.op_type.as_str() {
-                "Concat" => {
-                    let mut concat = ConcatNode::from_hashmap(&elem.attributes).unwrap();
-                    concat.add_input_strings(elem.inputs.clone());
-                    concat.add_output_strings(elem.outputs[0].clone());
-                    ret.insert(Box::new(concat));
-                }
-                "Gather" => {
-                    let mut concat = GatherNode::from_hashmap(&elem.attributes).unwrap();
-                    concat.add_input_strings(elem.inputs[0].clone(), elem.inputs[1].clone());
-                    concat.add_output_strings(elem.outputs[0].clone());
-                    ret.insert(Box::new(concat));
-                }
-                "Sigmoid" => {
-                    let mut sigmoid = SigmoidNode::new();
-                    sigmoid.add_input_strings(elem.inputs[0].clone());
-                    sigmoid.add_output_strings(elem.outputs[0].clone());
-                    ret.insert(Box::new(sigmoid));
-                }
-                "Relu" => {
-                    let mut relu = ReluNode::new();
-                    relu.add_input_strings(elem.inputs[0].clone());
-                    relu.add_output_strings(elem.outputs[0].clone());
-                    ret.insert(Box::new(relu));
-                }
-                "Conv" => {
-                    let mut conv = ConvNode::from_hashmap(&elem.attributes).unwrap();
-                    let inputs = &elem.inputs;
-                    let b = inputs.get(2).cloned();
-                    conv.add_input_strings(inputs[0].clone(), inputs[1].clone(), b);
-                    conv.add_output_strings(elem.outputs[0].clone());
-                    ret.insert(Box::new(conv));
-                }
-                "Gemm" => {
-                    let mut conv = GemmNode::from_hashmap(&elem.attributes).unwrap();
-                    let inputs = &elem.inputs;
-                    let b = inputs.get(2).cloned();
-                    conv.add_input_strings(inputs[0].clone(), inputs[1].clone(), b);
-                    conv.add_output_strings(elem.outputs[0].clone());
-                    ret.insert(Box::new(conv));
-                }
-                "Resize" => {
-                    let inputs = &elem.inputs;
-                    let roi = inputs.get(1).filter(|s| !s.is_empty()).cloned();
-                    let scales = inputs.get(2).filter(|s| !s.is_empty()).cloned();
-                    let sizes = inputs.get(3).filter(|s| !s.is_empty()).cloned();
-
-                    let mut resize = ResizeNode::from_hashmap(&elem.attributes).unwrap();
-                    resize.add_input_strings(inputs[0].clone(), roi, scales, sizes);
-                    resize.add_output_strings(elem.outputs[0].clone());
-                    ret.insert(Box::new(resize));
-                }
-                "Transpose" => {
-                    let mut trans = TransposeNode::from_hashmap(&elem.attributes).unwrap();
-                    trans.add_input_strings(elem.inputs[0].clone());
-                    trans.add_output_strings(elem.outputs[0].clone());
-                    ret.insert(Box::new(trans));
-                }
-                "Sub" => {
-                    let mut sub = SubNode::new();
-                    sub.add_input_strings(elem.inputs[0].clone(), elem.inputs[1].clone());
-                    sub.add_output_strings(elem.outputs[0].clone());
-                    ret.insert(Box::new(sub));
-                }
-                "MaxPool" => {
-                    let mut max_pool = MaxPoolNode::from_hashmap(&elem.attributes).unwrap();
-                    max_pool.add_input_strings(elem.inputs[0].clone());
-                    max_pool.add_output_strings(elem.outputs[0].clone());
-                    ret.insert(Box::new(max_pool));
-                }
-                "Div" => {
-                    let mut div = DivNode::new();
-                    div.add_input_strings(elem.inputs[0].clone(), elem.inputs[1].clone());
-                    div.add_output_strings(elem.outputs[0].clone());
-                    ret.insert(Box::new(div));
-                }
-                "ArgMax" => {
-                    let mut argmax = ArgMaxNode::from_hashmap(&elem.attributes).unwrap();
-                    argmax.add_input_strings(elem.inputs[0].clone());
-                    argmax.add_output_strings(elem.outputs[0].clone());
-                    ret.insert(Box::new(argmax));
-                }
-                "Softmax" => {
-                    let mut soft_max = SoftMaxNode::from_hashmap(&elem.attributes).unwrap();
-                    soft_max.add_input_strings(elem.inputs[0].clone());
-                    soft_max.add_output_strings(elem.outputs[0].clone());
-                    ret.insert(Box::new(soft_max));
-                }
-                "Split" => {
-                    let mut split = SplitNode::from_hashmap(&elem.attributes).unwrap();
-                    split.add_input_strings(elem.inputs[0].clone(), elem.inputs[1].clone());
-                    split.add_output_strings(elem.outputs.clone());
-                    ret.insert(Box::new(split));
-                }
-                "Add" => {
-                    let mut add = AddNode::new();
-                    add.add_input_strings(elem.inputs[0].clone(), elem.inputs[1].clone());
-                    add.add_output_strings(elem.outputs[0].clone());
-                    ret.insert(Box::new(add));
-                }
-                "Mul" => {
-                    let mut mul = MulNode::new();
-                    mul.add_input_strings(elem.inputs[0].clone(), elem.inputs[1].clone());
-                    mul.add_output_strings(elem.outputs[0].clone());
-                    ret.insert(Box::new(mul));
-                }
-                "Reshape" => {
-                    let mut reshape = ReshapeNode::from_hashmap(&elem.attributes).unwrap();
-                    reshape.add_input_strings(elem.inputs[0].clone(), elem.inputs[1].clone());
-                    reshape.add_output_strings(elem.outputs[0].clone());
-                    ret.insert(Box::new(reshape));
-                }
-                "Shape" => {
-                    let mut shape = ShapeNode::from_hashmap(&elem.attributes).unwrap();
-                    shape.add_input_strings(elem.inputs[0].clone());
-                    shape.add_output_strings(elem.outputs[0].clone());
-                    ret.insert(Box::new(shape));
-                }
-                "Slice" => {
-                    let mut slice = SliceNode::new();
-                    let input = &elem.inputs;
-                    slice.add_input_strings(
-                        input[0].clone(),
-                        input[1].clone(),
-                        input[2].clone(),
-                        input[3].clone(),
-                    );
-                    slice.add_output_strings(elem.outputs[0].clone());
-                    ret.insert(Box::new(slice));
-                }
-                _ => {}
-            });
+        // onnx.execution_order()?.into_iter().for_each(|elem| {
+        for elem in onnx.execution_order()? {
+            ret.insert(Self::get_specifc_node_from_operation(elem)?);
+        }
 
         if let Some(start) = &mut ret.nodes {
             for next in start {

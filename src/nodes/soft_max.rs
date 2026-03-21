@@ -6,7 +6,7 @@ use crate::{
     typed_array::TypedArray,
 };
 use anyhow::Result;
-use onnx_extractor::AttributeValue;
+use onnx_extractor::{AttributeValue, OnnxOperation};
 
 #[derive(Default)]
 pub struct SoftMaxNode<T: Default> {
@@ -22,8 +22,8 @@ pub struct SoftMaxNode<T: Default> {
 }
 
 impl<T: Default> FromHashMap for SoftMaxNode<T> {
-    fn from_hashmap(attrs: &HashMap<String, AttributeValue>) -> Result<Self> {
-        Ok(Self {
+    fn from_hashmap(attrs: &HashMap<String, AttributeValue>, elem: &OnnxOperation) -> Result<Self> {
+        let mut softmax = Self {
             input: String::new(),
             o: String::new(),
             axis: match attrs.get("axis") {
@@ -32,7 +32,10 @@ impl<T: Default> FromHashMap for SoftMaxNode<T> {
             },
             unique_id: UniqueId::Softmax,
             next_node: None,
-        })
+        };
+        softmax.add_input_strings(elem.inputs[0].clone());
+        softmax.add_output_strings(elem.outputs[0].clone());
+        Ok(softmax)
     }
 }
 
