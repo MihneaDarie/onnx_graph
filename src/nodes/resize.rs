@@ -1,7 +1,7 @@
 use std::{any::Any, collections::HashMap, str::FromStr};
 
 use crate::{
-    nodes::{hash_trait::FromHashMap, node::Node, unique_ids::UniqueId},
+    nodes::{onnx_operation_trait::FromOnnxOperation, node::Node, unique_ids::UniqueId},
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -118,8 +118,8 @@ pub struct ResizeNode<T: Default> {
     next_node: Option<Vec<Box<dyn Node<T>>>>,
 }
 
-impl<T: Default> FromHashMap for ResizeNode<T> {
-    fn from_hashmap(attrs: &HashMap<String, AttributeValue>, elem: &OnnxOperation) -> Result<Self> {
+impl<T: Default> FromOnnxOperation for ResizeNode<T> {
+    fn from_onnx_operation(elem: &OnnxOperation) -> Result<Self> {let attrs = &elem.attributes;
         let inputs = &elem.inputs;
         let roi = inputs.get(1).filter(|s| !s.is_empty()).cloned();
         let scales = inputs.get(2).filter(|s| !s.is_empty()).cloned();

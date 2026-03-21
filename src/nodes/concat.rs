@@ -1,7 +1,7 @@
 use std::{any::Any, collections::HashMap};
 
 use crate::{
-    nodes::{hash_trait::FromHashMap, node::Node, unique_ids::UniqueId},
+    nodes::{onnx_operation_trait::FromOnnxOperation, node::Node, unique_ids::UniqueId},
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -30,8 +30,8 @@ impl<T: Default> ConcatNode<T> {
     }
 }
 
-impl<T: Default> FromHashMap for ConcatNode<T> {
-    fn from_hashmap(attrs: &HashMap<String, AttributeValue>, elem: &OnnxOperation) -> Result<Self> {
+impl<T: Default> FromOnnxOperation for ConcatNode<T> {
+    fn from_onnx_operation(elem: &OnnxOperation) -> Result<Self> {let attrs = &elem.attributes;
         let mut concat = Self {
             axis: {
                 match attrs.get("axis") {

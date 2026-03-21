@@ -1,7 +1,7 @@
 use std::{any::Any, collections::HashMap};
 
 use crate::{
-    nodes::{hash_trait::FromHashMap, node::Node, unique_ids::UniqueId},
+    nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -23,8 +23,9 @@ pub struct ArgMaxNode<T: Default> {
     next_node: Option<Vec<Box<dyn Node<T>>>>,
 }
 
-impl<T: Default> FromHashMap for ArgMaxNode<T> {
-    fn from_hashmap(attrs: &HashMap<String, AttributeValue>, elem: &OnnxOperation) -> Result<Self> {
+impl<T: Default> FromOnnxOperation for ArgMaxNode<T> {
+    fn from_onnx_operation(elem: &OnnxOperation) -> Result<Self> {
+        let attrs = &elem.attributes;
         let mut argmax = Self {
             data: String::new(),
             o: String::new(),

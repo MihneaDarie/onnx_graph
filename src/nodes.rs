@@ -3,7 +3,7 @@ pub mod concat;
 pub mod conv;
 pub mod gemm;
 pub mod div;
-pub mod hash_trait;
+pub mod onnx_operation_trait;
 pub mod max_pool;
 pub mod mul;
 pub mod node;

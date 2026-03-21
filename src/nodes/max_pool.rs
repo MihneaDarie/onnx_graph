@@ -1,7 +1,7 @@
 use std::{any::Any, cell::RefCell, collections::HashMap, str::FromStr};
 
 use crate::{
-    nodes::{hash_trait::FromHashMap, node::Node, unique_ids::UniqueId},
+    nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -53,11 +53,9 @@ pub struct MaxPoolNode<T: Default> {
     next_node: Option<Vec<Box<dyn Node<T>>>>,
 }
 
-impl<T: Default> FromHashMap for MaxPoolNode<T> {
-    fn from_hashmap(
-        attrs: &std::collections::HashMap<String, AttributeValue>,
-        elem: &OnnxOperation,
-    ) -> anyhow::Result<Self> {
+impl<T: Default> FromOnnxOperation for MaxPoolNode<T> {
+    fn from_onnx_operation(elem: &OnnxOperation) -> anyhow::Result<Self> {
+        let attrs = &elem.attributes;
         let mut max_pool = Self {
             x: String::new(),
             o: String::new(),

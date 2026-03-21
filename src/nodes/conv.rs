@@ -1,7 +1,7 @@
 use std::{any::Any, collections::HashMap, str::FromStr};
 
 use crate::{
-    nodes::{hash_trait::FromHashMap, node::Node, unique_ids::UniqueId},
+    nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -60,11 +60,9 @@ pub struct ConvNode<T: Default> {
     next_node: Option<Vec<Box<dyn Node<T>>>>,
 }
 
-impl<T: Default> FromHashMap for ConvNode<T> {
-    fn from_hashmap(
-        attrs: &std::collections::HashMap<String, AttributeValue>,
-        elem: &OnnxOperation,
-    ) -> anyhow::Result<Self> {
+impl<T: Default> FromOnnxOperation for ConvNode<T> {
+    fn from_onnx_operation(elem: &OnnxOperation) -> anyhow::Result<Self> {
+        let attrs = &elem.attributes;
         let mut conv = Self {
             x: String::new(),
             w: String::new(),
