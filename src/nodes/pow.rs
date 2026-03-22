@@ -1,61 +1,43 @@
 use std::{any::Any, collections::HashMap};
 
 use crate::{
-    nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
+    nodes::{node::Node, unique_ids::UniqueId},
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
 use anyhow::Result;
-use onnx_extractor::{AttributeValue, OnnxOperation};
+use onnx_extractor::OnnxOperation;
+use saker_rs::linarg::operations::mul_maybe_simd;
 
 #[derive(Default)]
-pub struct SoftMaxNode<T: Default> {
-    input: String,
+pub struct PowNode<T: Default> {
+    a: String,
+    b: String,
 
     o: String,
 
     unique_id: UniqueId,
 
-    axis: i64,
-
     next_node: Option<Vec<Box<dyn Node<T>>>>,
 }
 
-impl<T: Default> FromOnnxOperation for SoftMaxNode<T> {
-    fn from_onnx_operation(elem: &OnnxOperation) -> Result<Self> {
-        let attrs = &elem.attributes;
-        let mut softmax = Self {
-            input: String::new(),
+impl<T: Default> PowNode<T> {
+    pub fn new(elem: &OnnxOperation) -> Self {
+        let mut pow = Self {
+            a: String::new(),
+            b: String::new(),
             o: String::new(),
-            axis: match attrs.get("axis") {
-                Some(av) => av.as_int().unwrap(),
-                None => 0,
-            },
-            unique_id: UniqueId::Softmax,
+            unique_id: UniqueId::Pow,
             next_node: None,
         };
-        softmax.add_input_strings(elem.inputs[0].clone());
-        softmax.add_output_strings(elem.outputs[0].clone());
-        Ok(softmax)
-    }
-}
-
-impl<T: Default> SoftMaxNode<T> {
-    pub fn new(axis: i64) -> Self {
-        Self {
-            input: String::new(),
-
-            o: String::new(),
-
-            unique_id: UniqueId::Softmax,
-
-            axis,
-            next_node: None,
-        }
+        pow.add_input_strings(elem.inputs[0].clone(), elem.inputs[1].clone());
+        pow.add_output_strings(elem.outputs[0].clone());
+        pow
     }
 
-    pub fn add_input_strings(&mut self, input: String) {
-        self.input = input;
+    pub fn add_input_strings(&mut self, a: String, b: String) {
+        self.a = a;
+        self.b = b;
     }
 
     pub fn add_output_strings(&mut self, o: String) {
@@ -63,7 +45,7 @@ impl<T: Default> SoftMaxNode<T> {
     }
 }
 
-impl<T: Default + 'static> Node<T> for SoftMaxNode<T> {
+impl<T: Default + 'static> Node<T> for PowNode<T> {
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
@@ -75,28 +57,8 @@ impl<T: Default + 'static> Node<T> for SoftMaxNode<T> {
         self.unique_id
     }
 
-    fn get_next(&self) -> Option<&Vec<Box<dyn Node<T>>>> {
-        self.next_node.as_ref()
-    }
-
-    fn execute(&self, omap: &mut TensorMap) {
-        let [x, o] = omap.get_disjoint_mut([&self.input, &self.o]);
-        let x = &*x.unwrap();
-
-        match o {
-            Some(result) => {
-                x.softmax(self.axis, result).unwrap();
-            }
-            None => panic!("SoftMaxNode: missing input {}", self.input),
-        }
-    }
-
-    fn output_names(&self) -> Vec<String> {
-        vec![self.o.clone()]
-    }
-
     fn input_names(&self) -> Vec<String> {
-        vec![self.input.clone()]
+        vec![self.a.clone(), self.b.clone()]
     }
 
     fn take_next(&mut self) -> Option<Vec<Box<dyn Node<T>>>> {
@@ -110,11 +72,30 @@ impl<T: Default + 'static> Node<T> for SoftMaxNode<T> {
         self.next_node = next;
     }
 
+    fn get_next(&self) -> Option<&Vec<Box<dyn Node<T>>>> {
+        self.next_node.as_ref()
+    }
+
+    fn execute(&self, omap: &mut TensorMap) {
+        let [a, b, o] = omap.get_disjoint_mut([&self.a, &self.b, &self.o]);
+        let a = &*a.unwrap();
+        let b = &*b.unwrap();
+
+        match o {
+            Some(out) => {
+                a.pow(b, out).unwrap();
+            }
+            _ => panic!("PowNode: missing output(s) - o={}", self.o),
+        }
+    }
+    fn output_names(&self) -> Vec<String> {
+        vec![self.o.clone()]
+    }
     fn print(&self) {
         if let Some(list) = &self.next_node {
             print!("{}-", list.len());
         }
-        println!("soft_max-{},{}", self.input, self.o);
+        println!("pow-{},{},{}", self.a, self.b, self.o);
         if let Some(next) = &self.next_node {
             next.iter().for_each(|v| v.print());
         }
@@ -145,13 +126,13 @@ impl<T: Default + 'static> Node<T> for SoftMaxNode<T> {
     }
 
     fn determine_output_shape(&mut self, omap: &mut TensorMap) {
-        let [x, o] = omap.get_disjoint_mut([&self.input, &self.o]);
-        let x = x.map(|arr| &*arr);
+        let [a, o] = omap.get_disjoint_mut([&self.a, &self.o]);
+        let a = a.map(|arr| &*arr);
 
-        if let (Some(x), Some(o)) = (x, o)
-            && let Some(in_shape) = x.shape()
+        if let (Some(a), Some(o)) = (a, o)
+            && let Some(in_shape) = a.shape()
         {
-            *o = TypedArray::empty_with_others_type(x, in_shape);
+            *o = TypedArray::empty_with_others_type(a, in_shape);
         }
 
         if let Some(list) = &mut self.next_node {

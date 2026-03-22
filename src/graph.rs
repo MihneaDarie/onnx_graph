@@ -3,11 +3,11 @@ use std::collections::{HashMap, HashSet};
 use crate::{
     nodes::{
         add::AddNode, argmax::ArgMaxNode, concat::ConcatNode, conv::ConvNode, div::DivNode,
-        gather::GatherNode, gemm::GemmNode, max_pool::MaxPoolNode, mul::MulNode, node::Node,
-        onnx_operation_trait::FromOnnxOperation, relu::ReluNode, reshape::ReshapeNode,
-        resize::ResizeNode, shape::ShapeNode, sigmoid::SigmoidNode, slice::SliceNode,
-        soft_max::SoftMaxNode, split::SplitNode, sub::SubNode, transpose::TransposeNode,
-        unique_ids::UniqueId,
+        gather::GatherNode, gemm::GemmNode, max_pool::MaxPoolNode, mul::MulNode, neg::NegNode,
+        node::Node, onnx_operation_trait::FromOnnxOperation, pow::PowNode, relu::ReluNode,
+        reshape::ReshapeNode, resize::ResizeNode, shape::ShapeNode, sigmoid::SigmoidNode,
+        slice::SliceNode, soft_max::SoftMaxNode, split::SplitNode, sub::SubNode,
+        transpose::TransposeNode, unique_ids::UniqueId,
     },
     tensor_map::TensorMap,
     typed_array::TypedArray,
@@ -140,20 +140,27 @@ impl<T: Default + 'static> GraphForm<T> {
         let res: Box<dyn Node<T>> = match elem.op_type.as_str() {
             "Concat" => Box::new(ConcatNode::from_onnx_operation(elem)?),
             "Gather" => Box::new(GatherNode::from_onnx_operation(elem)?),
-            "Sigmoid" => Box::new(SigmoidNode::new(elem)),
-            "Relu" => Box::new(ReluNode::new(elem)),
             "Conv" => Box::new(ConvNode::from_onnx_operation(elem)?),
             "Gemm" => Box::new(GemmNode::from_onnx_operation(elem)?),
             "Resize" => Box::new(ResizeNode::from_onnx_operation(elem)?),
-            "Transpose" => Box::new(TransposeNode::from_onnx_operation(&elem)?),
-            "Sub" => Box::new(SubNode::new(elem)),
+            "Transpose" => Box::new(TransposeNode::from_onnx_operation(elem)?),
             "MaxPool" => Box::new(MaxPoolNode::from_onnx_operation(elem)?),
+
+            "Sigmoid" => Box::new(SigmoidNode::new(elem)),
+            "Relu" => Box::new(ReluNode::new(elem)),
+
+            "Sub" => Box::new(SubNode::new(elem)),
+            "Add" => Box::new(AddNode::new(elem)),
+            "Mul" => Box::new(MulNode::new(elem)),
             "Div" => Box::new(DivNode::new(elem)),
+
+            "Pow" => Box::new(PowNode::new(elem)),
+
+            "Neg" => Box::new(NegNode::new(elem)),
+
             "ArgMax" => Box::new(ArgMaxNode::from_onnx_operation(elem)?),
             "Softmax" => Box::new(SoftMaxNode::from_onnx_operation(&elem)?),
             "Split" => Box::new(SplitNode::from_onnx_operation(elem)?),
-            "Add" => Box::new(AddNode::new(elem)),
-            "Mul" => Box::new(MulNode::new(elem)),
             "Reshape" => Box::new(ReshapeNode::from_onnx_operation(elem)?),
             "Shape" => Box::new(ShapeNode::from_onnx_operation(elem)?),
             "Slice" => Box::new(SliceNode::new(elem)),

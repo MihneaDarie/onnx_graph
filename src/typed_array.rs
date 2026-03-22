@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::fmt::Display;
+use std::ops::BitAnd;
 
 use crate::nodes::conv::Conv2D;
 use crate::nodes::resize::Mode;
@@ -15,6 +16,7 @@ use saker_rs::{
     activations::Activation,
     linarg::operations::{apply_sigmoid, apply_silu},
 };
+use std::ops::Neg;
 
 thread_local! {
     static POOL_TMP: RefCell<Vec<f32>> = const {RefCell::new(Vec::new())};
@@ -148,6 +150,42 @@ macro_rules! impl_typed_binop {
         }
     };
 }
+macro_rules! impl_typed_singleopfunction {
+    ($name:ident, $method:ident, [$($variant:ident),+], [$($reject:ident),*]) => {
+        pub fn $name(&self, o: &mut TypedArray) -> anyhow::Result<()> {
+            match self {
+                $(
+                    TypedArray::$variant(a) => {
+                        let needs_alloc = match &*o {
+                            TypedArray::$variant(out) => out.shape() != a.shape(),
+                            _ => true,
+                        };
+                        if needs_alloc {
+                            *o = TypedArray::$variant(ArrayD::zeros(IxDyn(a.shape())));
+                        }
+                        if let TypedArray::$variant(out) = o {
+                            let dst = out.as_slice_memory_order_mut().unwrap();
+                            let src = a.as_slice_memory_order().unwrap();
+                            dst.iter_mut()
+                                .zip(src.iter())
+                                .for_each(|(d, s)| *d = (*s).$method());
+                        }
+                    }
+                )+
+                $(
+                    TypedArray::$reject(_) => {
+                        anyhow::bail!("unsupported type: {}", stringify!($reject));
+                    }
+                )*
+                TypedArray::Undefined => {
+                    anyhow::bail!("undefined type");
+                }
+                _ => anyhow::bail!("unsupported type"),
+            }
+            Ok(())
+        }
+    };
+}
 
 #[inline(always)]
 pub fn aprox_silu_f32(x: f32) -> f32 {
@@ -193,46 +231,112 @@ pub fn aprox_sigmoid_f64(x: f64) -> f64 {
     aprox_silu_f64(x) / x
 }
 
-impl TypedArray {
-    pub fn shape(&self) -> Option<&[usize]> {
-        match self {
-            TypedArray::Undefined => None,
-            TypedArray::F32(array_base) => Some(array_base.shape()),
-            TypedArray::U8(array_base) => Some(array_base.shape()),
-            TypedArray::I8(array_base) => Some(array_base.shape()),
-            TypedArray::U16(array_base) => Some(array_base.shape()),
-            TypedArray::I16(array_base) => Some(array_base.shape()),
-            TypedArray::I32(array_base) => Some(array_base.shape()),
-            TypedArray::I64(array_base) => Some(array_base.shape()),
-            TypedArray::String(array_base) => Some(array_base.shape()),
-            TypedArray::BOOL(array_base) => Some(array_base.shape()),
-            TypedArray::F64(array_base) => Some(array_base.shape()),
-            TypedArray::U32(array_base) => Some(array_base.shape()),
-            TypedArray::U64(array_base) => Some(array_base.shape()),
+macro_rules! impl_pow_variant {
+    ($variant: ident, $T:ty, $a_arr:expr, $b:expr, $o:expr, $in_shape:expr) => {{
+        let needs_alloc = match &($o) {
+            TypedArray::$variant(out) => out.shape() != $in_shape,
+            _ => true,
+        };
+        if needs_alloc {
+            *($o) = TypedArray::$variant(ArrayD::zeros(IxDyn($in_shape)));
         }
+
+        if let TypedArray::$variant(out) = $o {
+            let dst = out.as_slice_memory_order_mut().unwrap();
+            let src = $a_arr.as_slice_memory_order().unwrap();
+
+            macro_rules! pow_for_specific_type {
+                (float, $b_array:expr) => {{
+                    let b = $b_array
+                        .as_slice_memory_order()
+                        .expect("Couldn't extract the power of the exponent for floating point !");
+
+                    dst.par_iter_mut()
+                        .zip(src.par_iter().zip(b.par_iter()))
+                        .for_each(|(d, (s, p))| *d = (*s as f64).powf(*p as f64) as $T);
+                }};
+                (int, $b_arr:expr) => {{
+                    let b = $b_arr.as_slice_memory_order().unwrap();
+                    dst.par_iter_mut()
+                        .zip(src.par_iter().zip(b.par_iter()))
+                        .for_each(|(d, (s, p))| *d = (*s as f64).powi(*p as i32) as $T);
+                }};
+            }
+
+            match $b {
+                TypedArray::F64(b) => pow_for_specific_type!(float, b),
+                TypedArray::F32(b) => pow_for_specific_type!(float, b),
+                TypedArray::I64(b) => pow_for_specific_type!(int, b),
+                TypedArray::I32(b) => pow_for_specific_type!(int, b),
+                TypedArray::I16(b) => pow_for_specific_type!(int, b),
+                TypedArray::I8(b) => pow_for_specific_type!(int, b),
+                TypedArray::U64(b) => pow_for_specific_type!(int, b),
+                TypedArray::U32(b) => pow_for_specific_type!(int, b),
+                TypedArray::U16(b) => pow_for_specific_type!(int, b),
+                TypedArray::U8(b) => pow_for_specific_type!(int, b),
+                _ => anyhow::bail!("Pow: unsupported exponent type"),
+            }
+        }
+    }};
+}
+
+macro_rules! shape {
+    ($array:expr, [$($variant:ident),+]) => {
+        match $array {
+            $(
+                TypedArray::$variant(inner) => Some(inner.shape()),
+            )+
+            TypedArray::Undefined => {
+                None
+            }
+        }
+    };
+}
+
+macro_rules! discriminant {
+    ($array:expr, [$($variant:ident),+]) => {
+        match $array {
+            $(
+                TypedArray::$variant(_) => stringify!($variant),
+            )+
+            TypedArray::Undefined => "Undefinde"
+        }.to_string()
+    };
+}
+
+macro_rules! fix_if_not_contignous {
+            ($self:expr, [$($variant:ident),+]) => {
+               match $self {
+                $(TypedArray::$variant(a) =>{ if a.is_standard_layout() {
+                    TypedArray::$variant(a)
+                } else {
+                    TypedArray::$variant(a.as_standard_layout().into_owned())
+                }})+,
+                other => other,
+            }
+            };
+        }
+
+impl TypedArray {
+    pub fn discriminatn(&self) -> String {
+        discriminant!(
+            self,
+            [F32, U8, I8, U16, I16, I32, I64, String, BOOL, F64, U32, U64]
+        )
+    }
+
+    pub fn shape(&self) -> Option<&[usize]> {
+        shape!(
+            self,
+            [F32, U8, I8, U16, I16, I32, I64, String, BOOL, F64, U32, U64]
+        )
     }
 
     pub fn ensure_contiguous(self) -> Self {
-        macro_rules! fix {
-            ($variant:ident, $a:expr) => {
-                if $a.is_standard_layout() {
-                    TypedArray::$variant($a)
-                } else {
-                    TypedArray::$variant($a.as_standard_layout().into_owned())
-                }
-            };
-        }
-        match self {
-            TypedArray::F32(a) => fix!(F32, a),
-            TypedArray::F64(a) => fix!(F64, a),
-            TypedArray::I32(a) => fix!(I32, a),
-            TypedArray::I64(a) => fix!(I64, a),
-            TypedArray::U8(a) => fix!(U8, a),
-            TypedArray::U16(a) => fix!(U16, a),
-            TypedArray::U32(a) => fix!(U32, a),
-            TypedArray::U64(a) => fix!(U64, a),
-            other => other,
-        }
+        fix_if_not_contignous!(
+            self,
+            [F32, F64, I32, I64, U8, U16, U32, U64, I8, I16, BOOL, String]
+        )
     }
 
     pub fn argmax(
@@ -424,18 +528,12 @@ impl TypedArray {
         end: Option<i64>,
         o: &mut TypedArray,
     ) -> anyhow::Result<()> {
-        let shape: Vec<i64> = match data {
-            TypedArray::F32(arr) => arr.shape().iter().map(|&s| s as i64).collect(),
-            TypedArray::F64(arr) => arr.shape().iter().map(|&s| s as i64).collect(),
-            TypedArray::I32(arr) => arr.shape().iter().map(|&s| s as i64).collect(),
-            TypedArray::I64(arr) => arr.shape().iter().map(|&s| s as i64).collect(),
-            TypedArray::U8(arr) => arr.shape().iter().map(|&s| s as i64).collect(),
-            TypedArray::U16(arr) => arr.shape().iter().map(|&s| s as i64).collect(),
-            TypedArray::U32(arr) => arr.shape().iter().map(|&s| s as i64).collect(),
-            TypedArray::U64(arr) => arr.shape().iter().map(|&s| s as i64).collect(),
-            TypedArray::Undefined => return Err(anyhow::anyhow!("Shape: input is Undefined")),
-            _ => return Err(anyhow::anyhow!("Shape: unsupported type")),
-        };
+        let shape: Vec<i64> = data
+            .shape()
+            .unwrap()
+            .iter()
+            .map(|val| *val as i64)
+            .collect();
 
         let r = shape.len() as i64;
 
@@ -1449,6 +1547,46 @@ impl TypedArray {
     impl_typed_binop!(mul, *, *=, [F32, F64, I32, I64, U8, U16, U32, U64, I8, I16]);
     impl_typed_binop!(div, /, /=, [F32, F64, I32, I64, U8, U16, U32, U64, I8, I16]);
 
+    impl_typed_singleopfunction!(neg, neg, [F32, F64, I32, I64, I8, I16], [U8, U16, U32, U64]);
+
+    pub fn and(&self, b: &TypedArray, o: &mut TypedArray) -> anyhow::Result<()> {
+        match (self, b) {
+            (TypedArray::BOOL(a_arr), TypedArray::BOOL(b_arr)) => {
+                let needs_alloc = match &*o {
+                    TypedArray::BOOL(out) => out.shape() != a_arr.shape(),
+                    _ => true,
+                };
+                if needs_alloc {
+                    *o = TypedArray::BOOL(ArrayD::default(IxDyn(a_arr.shape())));
+                }
+                if let TypedArray::BOOL(o_arr) = o {
+                    let dst = o_arr.as_slice_memory_order_mut().unwrap();
+                    let a = a_arr.as_slice_memory_order().unwrap();
+                    let b = b_arr.as_slice_memory_order().unwrap();
+                    dst.iter_mut()
+                        .zip(a.iter().zip(b.iter()))
+                        .for_each(|(d, (a, b))| *d = *a & *b);
+                }
+            }
+            _ => anyhow::bail!("Bitwise and only available for boolean tensors"),
+        }
+        Ok(())
+    }
+
+    pub fn pow(&self, b: &TypedArray, o: &mut TypedArray) -> anyhow::Result<()> {
+        let in_shape = self.shape().unwrap();
+
+        match self {
+            TypedArray::F32(a) => impl_pow_variant!(F32, f32, a, b, o, in_shape),
+            TypedArray::F64(a) => impl_pow_variant!(F64, f64, a, b, o, in_shape),
+            TypedArray::I32(a) => impl_pow_variant!(I32, i32, a, b, o, in_shape),
+            TypedArray::I64(a) => impl_pow_variant!(I64, i64, a, b, o, in_shape),
+            _ => anyhow::bail!("Pow: unsupported type for A"),
+        }
+
+        Ok(())
+    }
+
     pub fn empty_with_others_type(other: &Self, shape: &[usize]) -> Self {
         match other {
             TypedArray::F32(_) => TypedArray::F32(ArrayD::zeros(shape)),
@@ -1594,20 +1732,6 @@ impl TypedArray {
 
 impl Display for TypedArray {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self {
-            TypedArray::Undefined => write!(f, "undefined"),
-            TypedArray::F32(array_base) => write!(f, "{:?}", array_base.shape()),
-            TypedArray::U8(array_base) => write!(f, "{:?}", array_base.shape()),
-            TypedArray::I8(array_base) => write!(f, "{:?}", array_base.shape()),
-            TypedArray::U16(array_base) => write!(f, "{:?}", array_base.shape()),
-            TypedArray::I16(array_base) => write!(f, "{:?}", array_base.shape()),
-            TypedArray::I32(array_base) => write!(f, "{:?}", array_base.shape()),
-            TypedArray::I64(array_base) => write!(f, "{:?}", array_base.get(0)),
-            TypedArray::String(array_base) => write!(f, "{:?}", array_base.shape()),
-            TypedArray::BOOL(array_base) => write!(f, "{:?}", array_base.shape()),
-            TypedArray::F64(array_base) => write!(f, "{:?}", array_base.shape()),
-            TypedArray::U32(array_base) => write!(f, "{:?}", array_base.shape()),
-            TypedArray::U64(array_base) => write!(f, "{:?}", array_base.shape()),
-        }
+        write!(f, "{:?}", self.shape())
     }
 }

@@ -1,7 +1,7 @@
 use std::{any::Any, collections::HashMap};
 
 use crate::{
-    nodes::{onnx_operation_trait::FromOnnxOperation, node::Node, unique_ids::UniqueId},
+    nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -23,7 +23,8 @@ pub struct GatherNode<T: Default> {
 }
 
 impl<T: Default> FromOnnxOperation for GatherNode<T> {
-    fn from_onnx_operation(elem: &OnnxOperation) -> Result<Self> {let attrs = &elem.attributes;
+    fn from_onnx_operation(elem: &OnnxOperation) -> Result<Self> {
+        let attrs = &elem.attributes;
         let mut gather = Self {
             data: String::new(),
             indices: String::new(),

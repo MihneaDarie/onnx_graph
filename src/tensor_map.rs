@@ -51,7 +51,6 @@ impl TensorMap {
     }
 }
 
-
 pub struct UnsafeSendMut<T>(pub *mut T);
 unsafe impl<T> Send for UnsafeSendMut<T> {}
 unsafe impl<T> Sync for UnsafeSendMut<T> {}
