@@ -162,7 +162,7 @@ impl<T: Default + 'static> Node<T> for ShapeNode<T> {
             };
 
             let len = end.saturating_sub(start);
-            *o = TypedArray::I64(ArrayD::zeros(IxDyn(&[len])));
+            *o = TypedArray::Int64(ArrayD::zeros(IxDyn(&[len])));
         }
 
         if let Some(list) = &mut self.next_node {

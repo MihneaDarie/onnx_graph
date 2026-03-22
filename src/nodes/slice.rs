@@ -162,9 +162,9 @@ impl<T: Default + 'static> Node<T> for SliceNode<T> {
         if let (Some(data), Some(o)) = (data, o)
             && let Some(in_shape) = data.shape()
             && let (
-                Some(TypedArray::I64(starts)),
-                Some(TypedArray::I64(ends)),
-                Some(TypedArray::I64(axes)),
+                Some(TypedArray::Int64(starts)),
+                Some(TypedArray::Int64(ends)),
+                Some(TypedArray::Int64(axes)),
             ) = (starts, ends, axes)
         {
             let mut out_shape = in_shape.to_vec();

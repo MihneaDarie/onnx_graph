@@ -95,13 +95,13 @@ impl<T: Default + 'static> Node<T> for SplitNode<T> {
     fn execute(&self, omap: &mut TensorMap) {
         let input = omap.get(&self.input);
 
-        let split_sizes: Vec<i64> = if let Some(TypedArray::I64(a)) = omap.get(&self.split) {
+        let split_sizes: Vec<i64> = if let Some(TypedArray::Int64(a)) = omap.get(&self.split) {
             a.iter().cloned().collect()
         } else if self.num_outputs > 0 {
             let input_ref = input.as_ref().unwrap();
             let axis = self.axis as usize;
             let dim = match input_ref {
-                TypedArray::F32(a) => a.shape()[axis],
+                TypedArray::Float(a) => a.shape()[axis],
                 _ => panic!("unsupported type"),
             };
             let chunk = dim / self.num_outputs as usize;
@@ -112,7 +112,7 @@ impl<T: Default + 'static> Node<T> for SplitNode<T> {
 
         match input {
             Some(input) => {
-                let split_tensor = TypedArray::I64(ndarray::Array1::from(split_sizes).into_dyn());
+                let split_tensor = TypedArray::Int64(ndarray::Array1::from(split_sizes).into_dyn());
                 let mut results = Vec::new();
                 input.split(&split_tensor, self.axis, &mut results).unwrap();
 

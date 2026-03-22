@@ -133,7 +133,7 @@ impl<T: Default + 'static> Node<T> for AndNode<T> {
         if let (Some(a), Some(o)) = (a, o)
             && let Some(in_shape) = a.shape()
         {
-            *o = TypedArray::BOOL(ArrayD::default(IxDyn(in_shape)))
+            *o = TypedArray::Bool(ArrayD::default(IxDyn(in_shape)))
         }
 
         if let Some(list) = &mut self.next_node {

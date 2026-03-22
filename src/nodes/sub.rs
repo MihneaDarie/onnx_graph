@@ -83,8 +83,11 @@ impl<T: Default + 'static> Node<T> for SubNode<T> {
 
         match o {
             Some(out) => {
-                if let (TypedArray::F32(a_arr), TypedArray::F32(b_arr), TypedArray::F32(o_arr)) =
-                    (a, b, &mut *out)
+                if let (
+                    TypedArray::Float(a_arr),
+                    TypedArray::Float(b_arr),
+                    TypedArray::Float(o_arr),
+                ) = (a, b, &mut *out)
                 {
                     if a_arr.shape() == b_arr.shape() {
                         let a_sl = a_arr.as_slice_memory_order().unwrap();

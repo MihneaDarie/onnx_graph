@@ -169,7 +169,7 @@ impl<T: Default + 'static> Node<T> for ArgMaxNode<T> {
                 out_shape.remove(axis);
             }
 
-            *o = TypedArray::I64(ArrayD::zeros(IxDyn(&out_shape)));
+            *o = TypedArray::Int64(ArrayD::zeros(IxDyn(&out_shape)));
         }
 
         if let Some(list) = &mut self.next_node {

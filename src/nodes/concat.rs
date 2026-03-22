@@ -97,10 +97,10 @@ impl<T: Default + 'static> Node<T> for ConcatNode<T> {
             .collect();
 
         let ndim = match &arrays[0] {
-            TypedArray::F32(a) => a.ndim(),
-            TypedArray::F64(a) => a.ndim(),
-            TypedArray::I32(a) => a.ndim(),
-            TypedArray::I64(a) => a.ndim(),
+            TypedArray::Float(a) => a.ndim(),
+            TypedArray::Double(a) => a.ndim(),
+            TypedArray::Int32(a) => a.ndim(),
+            TypedArray::Int64(a) => a.ndim(),
             _ => panic!("unsupported type in concat"),
         };
 

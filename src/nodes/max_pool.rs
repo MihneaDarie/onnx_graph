@@ -185,7 +185,7 @@ pub fn maxpool_fast(
     let dh = dilations.first().copied().unwrap_or(1);
     let dw = dilations.get(1).copied().unwrap_or(1);
 
-    if let (TypedArray::F32(x), TypedArray::F32(out)) = (input, &mut *o)
+    if let (TypedArray::Float(x), TypedArray::Float(out)) = (input, &mut *o)
         && kh == kw
         && sh == 1
         && sw == 1

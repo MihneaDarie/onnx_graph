@@ -158,7 +158,7 @@ impl<T: Default + 'static> Node<T> for ReshapeNode<T> {
 
         if let (Some(data), Some(shape_tensor), Some(o)) = (data, shape, o)
             && let Some(in_shape) = data.shape()
-            && let TypedArray::I64(shape_arr) = shape_tensor
+            && let TypedArray::Int64(shape_arr) = shape_tensor
         {
             let current_size: usize = in_shape.iter().product();
 

@@ -129,7 +129,7 @@ impl<T: Default + 'static> GraphForm<T> {
             println!("{shape:?}");
             map.insert(
                 tensor.name().to_string(),
-                TypedArray::F32(ArrayD::zeros(IxDyn(shape))),
+                TypedArray::Float(ArrayD::zeros(IxDyn(shape))),
             );
         });
 
@@ -227,7 +227,7 @@ impl<T: Default + 'static> GraphForm<T> {
     }
 
     pub fn pass(&self, omap: &mut TensorMap, input: &ArrayD<f32>) {
-        omap.insert("observation".to_string(), TypedArray::F32(input.clone()));
+        omap.insert("observation".to_string(), TypedArray::Float(input.clone()));
 
         if let Some(nodes) = &self.nodes {
             nodes.iter().for_each(|val| val.pass(omap));
