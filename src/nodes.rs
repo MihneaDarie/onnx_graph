@@ -25,3 +25,12 @@ pub mod split;
 pub mod sub;
 pub mod transpose;
 pub mod unique_ids;
+pub mod sqrt;
+pub mod cos;
+
+pub mod less_or_equal;
+pub mod less;
+pub mod greater_or_equal;
+pub mod greater;
+
+pub mod is_nan;

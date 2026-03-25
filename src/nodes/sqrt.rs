@@ -1,35 +1,35 @@
-use std::{any::Any, collections::HashMap};
+use std::any::Any;
+
+use onnx_extractor::OnnxOperation;
 
 use crate::{
     nodes::{node::Node, unique_ids::UniqueId},
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
-use anyhow::Result;
-use onnx_extractor::OnnxOperation;
 
 #[derive(Default)]
-pub struct SinNode<T: Default> {
-    x: String,
+pub struct SqrtNode<T: Default> {
+    pub x: String,
 
-    o: String,
+    pub o: String,
 
     unique_id: UniqueId,
 
-    next_node: Option<Vec<Box<dyn Node<T>>>>,
+    pub next_node: Option<Vec<Box<dyn Node<T>>>>,
 }
 
-impl<T: Default> SinNode<T> {
+impl<T: Default> SqrtNode<T> {
     pub fn new(elem: &OnnxOperation) -> Self {
-        let mut sin = Self {
+        let mut sqrtt = Self {
             x: String::new(),
             o: String::new(),
-            unique_id: UniqueId::Sin,
+            unique_id: UniqueId::Sigmoid,
             next_node: None,
         };
-        sin.add_input_strings(elem.inputs[0].clone());
-        sin.add_output_strings(elem.outputs[0].clone());
-        sin
+        sqrtt.add_input_strings(elem.inputs[0].clone());
+        sqrtt.add_output_strings(elem.outputs[0].clone());
+        sqrtt
     }
 
     pub fn add_input_strings(&mut self, x: String) {
@@ -41,7 +41,7 @@ impl<T: Default> SinNode<T> {
     }
 }
 
-impl<T: Default + 'static> Node<T> for SinNode<T> {
+impl<T: Default + 'static> Node<T> for SqrtNode<T> {
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
@@ -51,30 +51,6 @@ impl<T: Default + 'static> Node<T> for SinNode<T> {
     }
     fn get_unique_id_mut(&mut self) -> UniqueId {
         self.unique_id
-    }
-
-    fn get_next(&self) -> Option<&Vec<Box<dyn Node<T>>>> {
-        self.next_node.as_ref()
-    }
-
-    fn execute(&self, omap: &mut TensorMap) {
-        let [x, o] = omap.get_disjoint_mut([&self.x, &self.o]);
-        let x = &*x.unwrap();
-
-        match o {
-            Some(result) => {
-                x.sin_op(result).unwrap();
-            }
-            None => panic!("SinNode: missing input {}", self.x),
-        }
-    }
-
-    fn output_names(&self) -> Vec<String> {
-        vec![self.o.clone()]
-    }
-
-    fn input_names(&self) -> Vec<String> {
-        vec![self.x.clone()]
     }
 
     fn take_next(&mut self) -> Option<Vec<Box<dyn Node<T>>>> {
@@ -88,14 +64,22 @@ impl<T: Default + 'static> Node<T> for SinNode<T> {
         self.next_node = next;
     }
 
+    fn input_names(&self) -> Vec<String> {
+        vec![self.x.clone()]
+    }
+
     fn print(&self) {
         if let Some(list) = &self.next_node {
             print!("{}-", list.len());
         }
-        println!("sin-{},{}", self.x, self.o);
+        println!("sqrt-{},{}", self.x, self.o);
         if let Some(next) = &self.next_node {
             next.iter().for_each(|v| v.print());
         }
+    }
+
+    fn get_next(&self) -> Option<&Vec<Box<dyn Node<T>>>> {
+        self.next_node.as_ref()
     }
 
     fn self_count(&self, count: usize) -> usize {
@@ -112,7 +96,7 @@ impl<T: Default + 'static> Node<T> for SinNode<T> {
         }
     }
 
-    fn insert(&mut self, next: Box<dyn Node<T>>) -> Result<()> {
+    fn insert(&mut self, next: Box<dyn Node<T>>) -> anyhow::Result<()> {
         if let Some(next_node) = &mut self.next_node {
             next_node[0].insert(next)?;
             return Ok(());
@@ -120,6 +104,22 @@ impl<T: Default + 'static> Node<T> for SinNode<T> {
             self.next_node = Some(vec![next])
         }
         Ok(())
+    }
+
+    fn output_names(&self) -> Vec<String> {
+        vec![self.o.clone()]
+    }
+
+    fn execute(&self, omap: &mut TensorMap) {
+        let [x, o] = omap.get_disjoint_mut([&self.x, &self.o]);
+        let x = &*x.unwrap();
+
+        match o {
+            Some(result) => {
+                x.sqrt_op(result).unwrap();
+            }
+            None => panic!("SqrtNode: missing output {}", self.x),
+        }
     }
 
     fn determine_output_shape(&mut self, omap: &mut TensorMap) {

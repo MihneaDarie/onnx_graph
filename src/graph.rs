@@ -2,12 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{
     nodes::{
-        add::AddNode, argmax::ArgMaxNode, concat::ConcatNode, conv::ConvNode, div::DivNode,
-        gather::GatherNode, gemm::GemmNode, max_pool::MaxPoolNode, mul::MulNode, neg::NegNode,
-        node::Node, onnx_operation_trait::FromOnnxOperation, pow::PowNode, relu::ReluNode,
-        reshape::ReshapeNode, resize::ResizeNode, shape::ShapeNode, sigmoid::SigmoidNode,
-        slice::SliceNode, soft_max::SoftMaxNode, split::SplitNode, sub::SubNode,
-        transpose::TransposeNode, unique_ids::UniqueId,
+        add::AddNode, and::AndNode, argmax::ArgMaxNode, concat::ConcatNode, conv::ConvNode, cos::CosNode, div::DivNode, gather::GatherNode, gemm::GemmNode, greater::GreaterNode, greater_or_equal::GreaterOrEqualNode, is_nan::IsNanNode, less::LessNode, less_or_equal::LessOrEqualNode, max_pool::MaxPoolNode, mul::MulNode, neg::NegNode, node::Node, onnx_operation_trait::FromOnnxOperation, pow::PowNode, relu::ReluNode, reshape::ReshapeNode, resize::ResizeNode, shape::ShapeNode, sigmoid::SigmoidNode, sin::SinNode, slice::SliceNode, soft_max::SoftMaxNode, split::SplitNode, sqrt::SqrtNode, sub::SubNode, transpose::TransposeNode, unique_ids::UniqueId
     },
     tensor_map::TensorMap,
     typed_array::TypedArray,
@@ -153,6 +148,20 @@ impl<T: Default + 'static> GraphForm<T> {
             "Add" => Box::new(AddNode::new(elem)),
             "Mul" => Box::new(MulNode::new(elem)),
             "Div" => Box::new(DivNode::new(elem)),
+
+            "And" => Box::new(AndNode::new(elem)),
+
+            "Sin" => Box::new(SinNode::new(elem)),
+            "Cos" => Box::new(CosNode::new(elem)),
+
+            "LessOrEqual" => Box::new(LessOrEqualNode::new(elem)),
+            "Less" => Box::new(LessNode::new(elem)),
+            "GreaterOrEqual" => Box::new(GreaterOrEqualNode::new(elem)),
+            "Greater" => Box::new(GreaterNode::new(elem)),
+
+            "Sqrt" => Box::new(SqrtNode::new(elem)),
+
+            "IsNaN" => Box::new(IsNanNode::new(elem)),
 
             "Pow" => Box::new(PowNode::new(elem)),
 

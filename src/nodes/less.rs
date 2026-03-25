@@ -9,8 +9,9 @@ use anyhow::Result;
 use onnx_extractor::OnnxOperation;
 
 #[derive(Default)]
-pub struct SinNode<T: Default> {
-    x: String,
+pub struct LessNode<T: Default> {
+    a: String,
+    b: String,
 
     o: String,
 
@@ -19,21 +20,23 @@ pub struct SinNode<T: Default> {
     next_node: Option<Vec<Box<dyn Node<T>>>>,
 }
 
-impl<T: Default> SinNode<T> {
+impl<T: Default> LessNode<T> {
     pub fn new(elem: &OnnxOperation) -> Self {
-        let mut sin = Self {
-            x: String::new(),
+        let mut less_or_equal = Self {
+            a: String::new(),
+            b: String::new(),
             o: String::new(),
-            unique_id: UniqueId::Sin,
+            unique_id: UniqueId::Less,
             next_node: None,
         };
-        sin.add_input_strings(elem.inputs[0].clone());
-        sin.add_output_strings(elem.outputs[0].clone());
-        sin
+        less_or_equal.add_input_strings(elem.inputs[0].clone(), elem.inputs[1].clone());
+        less_or_equal.add_output_strings(elem.outputs[0].clone());
+        less_or_equal
     }
 
-    pub fn add_input_strings(&mut self, x: String) {
-        self.x = x;
+    pub fn add_input_strings(&mut self, a: String, b: String) {
+        self.a = a;
+        self.b = b;
     }
 
     pub fn add_output_strings(&mut self, o: String) {
@@ -41,7 +44,7 @@ impl<T: Default> SinNode<T> {
     }
 }
 
-impl<T: Default + 'static> Node<T> for SinNode<T> {
+impl<T: Default + 'static> Node<T> for LessNode<T> {
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
@@ -58,14 +61,15 @@ impl<T: Default + 'static> Node<T> for SinNode<T> {
     }
 
     fn execute(&self, omap: &mut TensorMap) {
-        let [x, o] = omap.get_disjoint_mut([&self.x, &self.o]);
-        let x = &*x.unwrap();
+        let [a, b, o] = omap.get_disjoint_mut([&self.a, &self.b, &self.o]);
+        let a = &*a.unwrap();
+        let b = &*b.unwrap();
 
         match o {
             Some(result) => {
-                x.sin_op(result).unwrap();
+                a.less_op(b, result).unwrap();
             }
-            None => panic!("SinNode: missing input {}", self.x),
+            None => panic!("LessNode: missing input {}", self.a),
         }
     }
 
@@ -74,7 +78,7 @@ impl<T: Default + 'static> Node<T> for SinNode<T> {
     }
 
     fn input_names(&self) -> Vec<String> {
-        vec![self.x.clone()]
+        vec![self.a.clone()]
     }
 
     fn take_next(&mut self) -> Option<Vec<Box<dyn Node<T>>>> {
@@ -92,7 +96,7 @@ impl<T: Default + 'static> Node<T> for SinNode<T> {
         if let Some(list) = &self.next_node {
             print!("{}-", list.len());
         }
-        println!("sin-{},{}", self.x, self.o);
+        println!("less-{},{}", self.a, self.o);
         if let Some(next) = &self.next_node {
             next.iter().for_each(|v| v.print());
         }
@@ -123,7 +127,7 @@ impl<T: Default + 'static> Node<T> for SinNode<T> {
     }
 
     fn determine_output_shape(&mut self, omap: &mut TensorMap) {
-        let [x, o] = omap.get_disjoint_mut([&self.x, &self.o]);
+        let [x, o] = omap.get_disjoint_mut([&self.a, &self.o]);
         let x = x.map(|arr| &*arr);
 
         if let (Some(x), Some(o)) = (x, o)

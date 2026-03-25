@@ -27,13 +27,13 @@ macro_rules! max_pool_variant {
         let dh = $dilations.first().copied().unwrap_or(1);
         let dw = $dilations.get(1).copied().unwrap_or(1);
 
-        let hout = if $ceil_mode {
-            (hin + 2 * ph - dh * (kh - 1) - 1).div_ceil(sh)
+        let hout = if $ceil_mode != false {
+            (hin + 2 * ph - dh * (kh - 1) - 1 + sh - 1) / sh + 1
         } else {
             (hin + 2 * ph - dh * (kh - 1) - 1) / sh + 1
         };
-        let wout = if $ceil_mode {
-            (win + 2 * pw - dw * (kw - 1) - 1).div_ceil(sw)
+        let wout = if $ceil_mode != false {
+            (win + 2 * pw - dw * (kw - 1) - 1 + sw - 1) / sw + 1
         } else {
             (win + 2 * pw - dw * (kw - 1) - 1) / sw + 1
         };

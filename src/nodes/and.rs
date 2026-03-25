@@ -86,7 +86,7 @@ impl<T: Default + 'static> Node<T> for AndNode<T> {
 
         match o {
             Some(out) => {
-                a.and(b, out).unwrap();
+                a.and_op(b, out).unwrap();
             }
             _ => panic!("AndNode: missing output {}", self.o),
         }

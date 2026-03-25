@@ -9,7 +9,7 @@ use anyhow::Result;
 use onnx_extractor::OnnxOperation;
 
 #[derive(Default)]
-pub struct SinNode<T: Default> {
+pub struct CosNode<T: Default> {
     x: String,
 
     o: String,
@@ -19,17 +19,17 @@ pub struct SinNode<T: Default> {
     next_node: Option<Vec<Box<dyn Node<T>>>>,
 }
 
-impl<T: Default> SinNode<T> {
+impl<T: Default> CosNode<T> {
     pub fn new(elem: &OnnxOperation) -> Self {
-        let mut sin = Self {
+        let mut cosinus = Self {
             x: String::new(),
             o: String::new(),
-            unique_id: UniqueId::Sin,
+            unique_id: UniqueId::Cos,
             next_node: None,
         };
-        sin.add_input_strings(elem.inputs[0].clone());
-        sin.add_output_strings(elem.outputs[0].clone());
-        sin
+        cosinus.add_input_strings(elem.inputs[0].clone());
+        cosinus.add_output_strings(elem.outputs[0].clone());
+        cosinus
     }
 
     pub fn add_input_strings(&mut self, x: String) {
@@ -41,7 +41,7 @@ impl<T: Default> SinNode<T> {
     }
 }
 
-impl<T: Default + 'static> Node<T> for SinNode<T> {
+impl<T: Default + 'static> Node<T> for CosNode<T> {
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
@@ -63,9 +63,9 @@ impl<T: Default + 'static> Node<T> for SinNode<T> {
 
         match o {
             Some(result) => {
-                x.sin_op(result).unwrap();
+                x.cos_op(result).unwrap();
             }
-            None => panic!("SinNode: missing input {}", self.x),
+            None => panic!("CosNode: missing input {}", self.x),
         }
     }
 
@@ -92,7 +92,7 @@ impl<T: Default + 'static> Node<T> for SinNode<T> {
         if let Some(list) = &self.next_node {
             print!("{}-", list.len());
         }
-        println!("sin-{},{}", self.x, self.o);
+        println!("cos-{},{}", self.x, self.o);
         if let Some(next) = &self.next_node {
             next.iter().for_each(|v| v.print());
         }

@@ -408,14 +408,14 @@ impl<T: Default + 'static> Node<T> for MaxPoolNode<T> {
             let dw = self.dilations.get(1).copied().unwrap_or(dh);
 
             let hout = if self.ceil_mode != 0 {
-                (hin + 2 * ph - dh * (kh - 1) - 1 + sh - 1).div_ceil(sh)
+                (hin + 2 * ph - dh * (kh - 1) - 1 + sh - 1) / sh + 1
             } else {
                 (hin + 2 * ph - dh * (kh - 1) - 1) / sh + 1
             };
             let wout = if self.ceil_mode != 0 {
-                (win + 2 * pw - dw * (kw - 1) - 1 + sw - 1).div_ceil(sw)
+                (win + 2 * pw - dw * (kw - 1) - 1 + sw - 1) / sw + 1
             } else {
-                (win + 2 * pw - dw * (kw - 1) - 1).div_ceil(sw)
+                (win + 2 * pw - dw * (kw - 1) - 1) / sw + 1
             };
 
             let out_shape = &[x_shape[0], x_shape[1], hout, wout];

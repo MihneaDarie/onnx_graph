@@ -12,6 +12,12 @@ pub enum UniqueId {
     Split,
     Transpose,
 
+    LessOrEqual,
+    Less,
+    GreaterOrEqual,
+    Greater,
+    Equal,
+
     Sub,
     Mul,
     Div,
@@ -19,6 +25,11 @@ pub enum UniqueId {
     And,
     Pow,
     Sin,
+    Cos,
+
+    Sqrt,
+
+    IsNan,
 
     ArgMax,
     Shape,

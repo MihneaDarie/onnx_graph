@@ -11,9 +11,11 @@ use crate::{
     call_reshape_for_typed_array, call_slice_for_typed_array, call_split_for_typed_array,
     call_transpose_for_typed_array, concat_variant, discriminant_macro, fix_if_not_contignous,
     from_shape_vec_from_datatype, gather_variant, get_curent_size_and_shape, impl_pow_variant,
-    impl_typed_binop, impl_typed_singleopfunction, max_pool_variant, reshape_variant, shape_macro,
-    slice_variant, softmax_variant, split_variant, transpose_variant, zeros_from_datatype,
-    zeros_from_others_type,
+    impl_typed_binop, impl_typed_binop_with_boolean_output,
+    impl_typed_singleopfunction_with_boolean_ouput,
+    impl_typed_singleopfunction_with_the_same_output_type_as_the_output, max_pool_variant,
+    reshape_variant, shape_macro, slice_variant, softmax_variant, split_variant, transpose_variant,
+    zeros_from_datatype, zeros_from_others_type,
 };
 use ndarray::{Array1, Array4, ArrayD, ArrayView1, Ix1, Ix4, IxDyn};
 use ndarray::{ArrayView4, ArrayViewMut4, Axis};
@@ -1005,41 +1007,63 @@ impl TypedArray {
         }
     }
 
-    impl_typed_binop!(add, +, +=, [Float, Double, Int32, Int64, Uint8, Uint16, Uint32, Uint64, Int8, Int16]);
-    impl_typed_binop!(sub, -, -=, [Float, Double, Int32, Int64, Uint8, Uint16, Uint32, Uint64, Int8, Int16]);
-    impl_typed_binop!(mul, *, *=, [Float, Double, Int32, Int64, Uint8, Uint16, Uint32, Uint64, Int8, Int16]);
-    impl_typed_binop!(div, /, /=, [Float, Double, Int32, Int64, Uint8, Uint16, Uint32, Uint64, Int8, Int16]);
+    impl_typed_binop!(add, +, [Float, Double, Int32, Int64, Uint8, Uint16, Uint32, Uint64, Int8, Int16]);
+    impl_typed_binop!(sub, -, [Float, Double, Int32, Int64, Uint8, Uint16, Uint32, Uint64, Int8, Int16]);
+    impl_typed_binop!(mul, *, [Float, Double, Int32, Int64, Uint8, Uint16, Uint32, Uint64, Int8, Int16]);
+    impl_typed_binop!(div, /, [Float, Double, Int32, Int64, Uint8, Uint16, Uint32, Uint64, Int8, Int16]);
 
-    impl_typed_singleopfunction!(
+    impl_typed_binop!(and_op, &, [Bool]);
+
+    impl_typed_binop_with_boolean_output!(
+        less_or_equal_op,
+        |a, b| a <= b,
+        [
+            Double, Float, Int16, Int32, Int64, Int8, Uint16, Uint32, Uint64, Uint8
+        ]
+    );
+    impl_typed_binop_with_boolean_output!(
+        less_op,
+        |a, b| a < b,
+        [
+            Double, Float, Int16, Int32, Int64, Int8, Uint16, Uint32, Uint64, Uint8
+        ]
+    );
+    impl_typed_binop_with_boolean_output!(
+        greater_or_equal_op,
+        |a, b| a >= b,
+        [
+            Double, Float, Int16, Int32, Int64, Int8, Uint16, Uint32, Uint64, Uint8
+        ]
+    );
+    impl_typed_binop_with_boolean_output!(
+        greater_op,
+        |a, b| a > b,
+        [
+            Double, Float, Int16, Int32, Int64, Int8, Uint16, Uint32, Uint64, Uint8
+        ]
+    );
+
+    impl_typed_binop_with_boolean_output!(
+        equal_op,
+        |a, b| a == b,
+        [
+            Double, Float, Int16, Int32, Int64, Int8, Uint16, Uint32, Uint64, Uint8
+        ]
+    );
+
+    impl_typed_singleopfunction_with_the_same_output_type_as_the_output!(
         neg,
         neg,
         [Float, Double, Int32, Int64, Int8, Int16],
         [Uint8, Uint16, Uint32, Uint64]
     );
 
-    pub fn and(&self, b: &TypedArray, o: &mut TypedArray) -> anyhow::Result<()> {
-        match (self, b) {
-            (TypedArray::Bool(a_arr), TypedArray::Bool(b_arr)) => {
-                let needs_alloc = match &*o {
-                    TypedArray::Bool(out) => out.shape() != a_arr.shape(),
-                    _ => true,
-                };
-                if needs_alloc {
-                    *o = TypedArray::Bool(ArrayD::default(IxDyn(a_arr.shape())));
-                }
-                if let TypedArray::Bool(o_arr) = o {
-                    let dst = o_arr.as_slice_memory_order_mut().unwrap();
-                    let a = a_arr.as_slice_memory_order().unwrap();
-                    let b = b_arr.as_slice_memory_order().unwrap();
-                    dst.iter_mut()
-                        .zip(a.iter().zip(b.iter()))
-                        .for_each(|(d, (a, b))| *d = *a & *b);
-                }
-            }
-            _ => anyhow::bail!("Bitwise and only available for boolean tensors"),
-        }
-        Ok(())
-    }
+    impl_typed_singleopfunction_with_boolean_ouput!(
+        is_nan_op,
+        is_nan,
+        [Float, Double],
+        [Uint8, Uint16, Uint32, Uint64, Int32, Int64, Int8, Int16]
+    );
 
     pub fn pow(&self, b: &TypedArray, o: &mut TypedArray) -> anyhow::Result<()> {
         let in_shape = self.shape().unwrap();
@@ -1052,6 +1076,33 @@ impl TypedArray {
         );
         Ok(())
     }
+
+    impl_typed_singleopfunction_with_the_same_output_type_as_the_output!(
+        sqrt_op,
+        sqrt,
+        [Float, Double],
+        [
+            Uint16, Uint32, Uint64, Uint8, Int16, Int32, Int64, Int8, String, Bool
+        ]
+    );
+
+    impl_typed_singleopfunction_with_the_same_output_type_as_the_output!(
+        sin_op,
+        sin,
+        [Float, Double],
+        [
+            Uint16, Uint32, Uint64, Uint8, Int16, Int32, Int64, Int8, String, Bool
+        ]
+    );
+
+    impl_typed_singleopfunction_with_the_same_output_type_as_the_output!(
+        cos_op,
+        cos,
+        [Float, Double],
+        [
+            Uint16, Uint32, Uint64, Uint8, Int16, Int32, Int64, Int8, String, Bool
+        ]
+    );
 
     pub fn empty_with_others_type(other: &Self, shape: &[usize]) -> Self {
         zeros_from_others_type!(
