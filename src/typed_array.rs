@@ -6,12 +6,12 @@ use std::ops::BitAnd;
 use crate::nodes::conv::Conv2D;
 use crate::nodes::resize::Mode;
 use crate::{
-    argmax_variant, call_argmax_for_typed_array, call_concat_for_typed_array,
-    call_gather_for_typed_array, call_maxpool_for_typed_array, call_pow_for_typed_array,
-    call_reshape_for_typed_array, call_slice_for_typed_array, call_split_for_typed_array,
-    call_transpose_for_typed_array, concat_variant, discriminant_macro, fix_if_not_contignous,
-    from_shape_vec_from_datatype, gather_variant, get_curent_size_and_shape, impl_pow_variant,
-    impl_typed_binop, impl_typed_binop_with_boolean_output,
+    argmax_variant, call_activation_source_to_destination, call_argmax_for_typed_array,
+    call_concat_for_typed_array, call_gather_for_typed_array, call_maxpool_for_typed_array,
+    call_pow_for_typed_array, call_reshape_for_typed_array, call_slice_for_typed_array,
+    call_split_for_typed_array, call_transpose_for_typed_array, concat_variant, discriminant_macro,
+    fix_if_not_contignous, from_shape_vec_from_datatype, gather_variant, get_curent_size_and_shape,
+    impl_pow_variant, impl_typed_binop, impl_typed_binop_with_boolean_output,
     impl_typed_singleopfunction_with_boolean_ouput,
     impl_typed_singleopfunction_with_the_same_output_type_as_the_output, max_pool_variant,
     reshape_variant, shape_macro, slice_variant, softmax_variant, split_variant, transpose_variant,
@@ -161,8 +161,8 @@ pub fn relu_f64(x: f64) -> f64 {
 }
 
 #[inline(always)]
-pub fn relu_f32(x: f64) -> f64 {
-    x.max(0.0f64)
+pub fn relu_f32(x: f32) -> f32 {
+    x.max(0.0f32)
 }
 
 #[inline(always)]
@@ -415,62 +415,23 @@ impl TypedArray {
         Ok(())
     }
 
-    pub fn sigmoid(&self, o: &mut TypedArray) -> anyhow::Result<()> {
-        match (self, &mut *o) {
-            (TypedArray::Float(i), TypedArray::Float(o)) => {
-                let src = i.as_slice_memory_order().unwrap();
-                let dst = o.as_slice_memory_order_mut().unwrap();
-                apply_sigmoid(dst, src);
-            }
-            (TypedArray::Double(i), TypedArray::Double(o)) => {
-                let src = i.as_slice_memory_order().unwrap();
-                let dst = o.as_slice_memory_order_mut().unwrap();
-                dst.par_iter_mut()
-                    .zip(src.par_iter())
-                    .for_each(|(d, s)| *d = aprox_sigmoid_f64(*s));
-            }
-            _ => return Err(anyhow::anyhow!("sigmoid only supported for F32/F64")),
-        }
-        Ok(())
-    }
+    call_activation_source_to_destination!(
+        sigmoid,
+        Some(apply_sigmoid),
+        [(Float, aprox_sigmoid_f32), (Double, aprox_sigmoid_f64)]
+    );
 
-    pub fn silu(&self, o: &mut TypedArray) -> anyhow::Result<()> {
-        match (self, &mut *o) {
-            (TypedArray::Float(i), TypedArray::Float(o)) => {
-                let src = i.as_slice_memory_order().unwrap();
-                let dst = o.as_slice_memory_order_mut().unwrap();
-                apply_silu(dst, src, i.len());
-            }
-            (TypedArray::Double(i), TypedArray::Double(o)) => {
-                let src = i.as_slice_memory_order().unwrap();
-                let dst = o.as_slice_memory_order_mut().unwrap();
-                dst.par_iter_mut()
-                    .zip(src.par_iter())
-                    .for_each(|(d, s)| *d = aprox_silu_f64(*s));
-            }
-            _ => return Err(anyhow::anyhow!("silu only supported for F32/F64")),
-        }
-        Ok(())
-    }
+    call_activation_source_to_destination!(
+        silu,
+        Some(apply_silu),
+        [(Float, aprox_silu_f32), (Double, aprox_silu_f64)]
+    );
 
-    pub fn relu(&self, o: &mut TypedArray) -> anyhow::Result<()> {
-        match (self, &mut *o) {
-            (TypedArray::Float(i), TypedArray::Float(o)) => {
-                let src = i.as_slice_memory_order().unwrap();
-                let dst = o.as_slice_memory_order_mut().unwrap();
-                apply_relu(dst, src, i.len());
-            }
-            (TypedArray::Double(i), TypedArray::Double(o)) => {
-                let src = i.as_slice_memory_order().unwrap();
-                let dst = o.as_slice_memory_order_mut().unwrap();
-                dst.par_iter_mut()
-                    .zip(src.par_iter())
-                    .for_each(|(d, s)| *d = relu_f64(*s));
-            }
-            _ => return Err(anyhow::anyhow!("relu only supported for F32/F64")),
-        }
-        Ok(())
-    }
+    call_activation_source_to_destination!(
+        relu,
+        Some(apply_relu),
+        [(Float, relu_f32),(Double, relu_f64)]
+    );
 
     pub fn reshape(
         &self,

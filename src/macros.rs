@@ -11,3 +11,4 @@ pub mod softmax_macros;
 pub mod split_macros;
 pub mod transpose_macro;
 pub mod utils_macros;
+pub mod activation_macros;
