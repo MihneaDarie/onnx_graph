@@ -12,6 +12,8 @@ pub enum UniqueId {
     Split,
     Transpose,
 
+    Cast,
+
     LessOrEqual,
     Less,
     GreaterOrEqual,

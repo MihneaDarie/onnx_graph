@@ -1,6 +1,7 @@
 pub mod add;
 pub mod and;
 pub mod argmax;
+pub mod cast;
 pub mod concat;
 pub mod conv;
 pub mod div;

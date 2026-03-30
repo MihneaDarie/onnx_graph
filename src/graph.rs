@@ -40,7 +40,7 @@ impl<T: Default + 'static> GraphForm<T> {
         }
     }
 
-    fn self_count(&self, count: usize) -> usize {
+    pub fn self_count(&self, count: usize) -> usize {
         if let Some(next) = &self.nodes {
             let mut ct = 0;
             let mut sum = 0;
