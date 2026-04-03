@@ -50,6 +50,89 @@ macro_rules! zeros_from_datatype {
     };
 }
 
+macro_rules! cast_to {
+    ($data_type:expr, $src_arr:expr) => {};
+}
+
+#[macro_export]
+macro_rules! cast_to_dst {
+    ($arr_base:expr, $data_type:expr, $out:expr, $T_src:ty, [$(($variant_dst:ident, $T_dst:ty)),+]) => {
+        match $data_type {
+            $(
+                DataType::$variant_dst => {
+                        if let TypedArray::$variant_dst(out_array) = $out {
+                            let out_slice = out_array.as_slice_memory_order_mut().unwrap();
+                            $arr_base.as_slice_memory_order()
+                                .unwrap()
+                                .par_iter()
+                                .zip(out_slice.par_iter_mut())
+                                .for_each(|(src, dst)| *dst = *src as $T_dst);
+                    }
+                }
+            )+
+            DataType::Bool => {
+                    if let TypedArray::Bool(out_array) = $out {
+                        let out_slice = out_array.as_slice_memory_order_mut().unwrap();
+                        $arr_base.as_slice_memory_order()
+                            .unwrap()
+                            .par_iter()
+                            .zip(out_slice.par_iter_mut())
+                            .for_each(|(src, dst)| *dst = *src != (0 as $T_src));
+                    }
+                }
+            _ => anyhow::bail!("Can't cast to unsupported array!"),
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! cast_bool_to_dst {
+    ($arr_base:expr, $data_type:expr, $out:expr, [$(($variant_dst:ident, $T_dst:ty)),+]) => {
+        match $data_type {
+            $(
+                DataType::$variant_dst => {
+                    if let TypedArray::$variant_dst(out_array) = $out {
+                        let out_slice = out_array.as_slice_memory_order_mut().unwrap();
+                        $arr_base.as_slice_memory_order()
+                            .unwrap()
+                            .par_iter()
+                            .zip(out_slice.par_iter_mut())
+                            .for_each(|(src, dst)| *dst = if *src == true {1 as $T_dst} else {0 as $T_dst});
+                    }
+                }
+            )+
+            DataType::Bool => {
+                    if let TypedArray::Bool(out_array) = $out {
+                        let out_slice = out_array.as_slice_memory_order_mut().unwrap();
+                        $arr_base.as_slice_memory_order()
+                            .unwrap()
+                            .par_iter()
+                            .zip(out_slice.par_iter_mut())
+                            .for_each(|(src, dst)| *dst = *src);
+                    }
+                }
+            _ => anyhow::bail!("Can't cast to unsupported array!"),
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! copy_and_cast_from_datatype {
+    ($data_type:expr, $src:expr, $out:expr, [$(($variant_src:ident, $T_src:ty)),+], $dst_list:tt) => {
+        match $src {
+            $(
+                TypedArray::$variant_src(arr_base) => {
+                    $crate::cast_to_dst!(arr_base, $data_type, $out, $T_src, $dst_list)
+                }
+            )+
+            TypedArray::Bool(array_base) => {
+                $crate::cast_bool_to_dst!(array_base, $data_type, $out, $dst_list)
+            }
+            _ => anyhow::bail!("Can't cast unsupported array!"),
+        }
+    };
+}
+
 #[macro_export]
 macro_rules! fix_if_not_contignous {
     ($self:expr, [$($variant:ident),+]) => {
@@ -61,6 +144,21 @@ macro_rules! fix_if_not_contignous {
         }})+,
         other => other,
     }
+    };
+}
+
+#[macro_export]
+macro_rules! fill_from_elem {
+    ($self:expr, $shape:expr, $o:expr, [$(($variant:ident,$T:ty)),+]) => {
+        match $self {
+            $(
+                TypedArray::$variant(v) => {
+                    let fill = v.iter().next().copied().unwrap_or(<$T>::default());
+                    *($o) = TypedArray::$variant(ArrayD::from_elem(IxDyn(&($shape)), fill));
+                }
+            )+
+            _ => return Err(anyhow::anyhow!("unsupported type for fill")),
+        }
     };
 }
 

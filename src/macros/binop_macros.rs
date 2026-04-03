@@ -32,7 +32,6 @@ macro_rules! impl_typed_binop {
     };
 }
 
-
 #[macro_export]
 macro_rules! impl_typed_binop_with_boolean_output {
     ($name:ident, $op:expr, [$($variant:ident),+]) => {

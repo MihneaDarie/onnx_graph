@@ -1,18 +1,18 @@
 use std::{any::Any, collections::HashMap};
 
 use crate::{
-    nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
+    nodes::{node::Node, unique_ids::UniqueId},
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
 use anyhow::Result;
-use onnx_extractor::{DataType, OnnxOperation};
+use onnx_extractor::OnnxOperation;
 
 #[derive(Default)]
-pub struct CastNode<T: Default> {
-    x: String,
-
-    to: Option<DataType>,
+pub struct RangeNode<T: Default> {
+    start: String,
+    limit: String,
+    delta: String,
 
     o: String,
 
@@ -21,28 +21,25 @@ pub struct CastNode<T: Default> {
     next_node: Option<Vec<Box<dyn Node<T>>>>,
 }
 
-impl<T: Default> FromOnnxOperation for CastNode<T> {
-    fn from_onnx_operation(elem: &OnnxOperation) -> Result<Self> {
-        let attrs = &elem.attributes;
-        let to = attrs
-            .get("to")
-            .and_then(|v| v.as_int().map(|val| DataType::from_onnx_type(val as i32)));
-        let mut cast = Self {
-            x: String::new(),
-            to,
+impl<T: Default> RangeNode<T> {
+    pub fn new(elem: &OnnxOperation) -> Self {
+        let mut range = Self {
+            start: String::new(),
+            limit: String::new(),
+            delta: String::new(),
             o: String::new(),
-            unique_id: UniqueId::Cast,
+            unique_id: UniqueId::Range,
             next_node: None,
         };
-        cast.add_input_strings(elem.inputs[0].clone());
-        cast.add_output_strings(elem.outputs[0].clone());
-        Ok(cast)
+        range.add_input_strings(&elem.inputs);
+        range.add_output_strings(elem.outputs[0].clone());
+        range
     }
-}
 
-impl<T: Default> CastNode<T> {
-    pub fn add_input_strings(&mut self, x: String) {
-        self.x = x;
+    pub fn add_input_strings(&mut self, inputs: &Vec<String>) {
+        self.start = inputs[0].clone();
+        self.limit = inputs[1].clone();
+        self.delta = inputs[2].clone();
     }
 
     pub fn add_output_strings(&mut self, o: String) {
@@ -50,7 +47,7 @@ impl<T: Default> CastNode<T> {
     }
 }
 
-impl<T: Default + 'static> Node<T> for CastNode<T> {
+impl<T: Default + 'static> Node<T> for RangeNode<T> {
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
@@ -67,12 +64,17 @@ impl<T: Default + 'static> Node<T> for CastNode<T> {
     }
 
     fn execute(&self, omap: &mut TensorMap) {
-        let [x, o] = omap.get_disjoint_mut([&self.x, &self.o]);
-        let x = &*x.unwrap();
+        let [start, limit, delta, o] =
+            omap.get_disjoint_mut([&self.start, &self.limit, &self.delta, &self.o]);
+        let start = start.map(|inner| &*inner);
+        let limit = limit.map(|inner| &*inner);
+        let delta = delta.map(|inner| &*inner);
 
-        match (o, self.to) {
-            (Some(result), Some(to)) => x.cast(result, to).unwrap(),
-            _ => panic!("CastNode: missing input {}", self.x),
+        match (start, limit, delta, o) {
+            (Some(start), Some(limit), Some(delta), Some(result)) => {
+                TypedArray::range(start, limit, delta, result).unwrap();
+            }
+            _ => panic!("RangeNode: missing input {}", self.start),
         }
     }
 
@@ -81,7 +83,7 @@ impl<T: Default + 'static> Node<T> for CastNode<T> {
     }
 
     fn input_names(&self) -> Vec<String> {
-        vec![self.x.clone()]
+        vec![self.start.clone(), self.limit.clone(), self.delta.clone()]
     }
 
     fn take_next(&mut self) -> Option<Vec<Box<dyn Node<T>>>> {
@@ -99,7 +101,10 @@ impl<T: Default + 'static> Node<T> for CastNode<T> {
         if let Some(list) = &self.next_node {
             print!("{}-", list.len());
         }
-        println!("cast-{},{}", self.x, self.o);
+        println!(
+            "range-{},{}, {}, {}",
+            self.start, self.limit, self.delta, self.o
+        );
         if let Some(next) = &self.next_node {
             next.iter().for_each(|v| v.print());
         }
@@ -130,15 +135,6 @@ impl<T: Default + 'static> Node<T> for CastNode<T> {
     }
 
     fn determine_output_shape(&mut self, omap: &mut TensorMap) {
-        let [x, o] = omap.get_disjoint_mut([&self.x, &self.o]);
-        let x = x.map(|arr| &*arr);
-
-        if let (Some(x), Some(o)) = (x, o)
-            && let Some(in_shape) = x.shape()
-        {
-            *o = TypedArray::empty_with_others_type(x, in_shape);
-        }
-
         if let Some(list) = &mut self.next_node {
             for next in list {
                 next.determine_output_shape(omap);

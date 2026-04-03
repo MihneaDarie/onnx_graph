@@ -5,14 +5,14 @@ use crate::{
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
-use anyhow::Result;
-use onnx_extractor::{DataType, OnnxOperation};
+use anyhow::{Ok, Result};
+use onnx_extractor::OnnxOperation;
 
 #[derive(Default)]
-pub struct CastNode<T: Default> {
+pub struct FlattenNode<T: Default> {
     x: String,
 
-    to: Option<DataType>,
+    axis: Option<i64>,
 
     o: String,
 
@@ -21,26 +21,38 @@ pub struct CastNode<T: Default> {
     next_node: Option<Vec<Box<dyn Node<T>>>>,
 }
 
-impl<T: Default> FromOnnxOperation for CastNode<T> {
+impl<T: Default> FromOnnxOperation for FlattenNode<T> {
     fn from_onnx_operation(elem: &OnnxOperation) -> Result<Self> {
-        let attrs = &elem.attributes;
-        let to = attrs
-            .get("to")
-            .and_then(|v| v.as_int().map(|val| DataType::from_onnx_type(val as i32)));
-        let mut cast = Self {
+        let mut flatten = Self {
             x: String::new(),
-            to,
+            axis: Some(0),
             o: String::new(),
-            unique_id: UniqueId::Cast,
+            unique_id: UniqueId::Flatten,
             next_node: None,
         };
-        cast.add_input_strings(elem.inputs[0].clone());
-        cast.add_output_strings(elem.outputs[0].clone());
-        Ok(cast)
+        let attrs = &elem.attributes;
+        let axis = attrs.get("axis").and_then(|val| val.as_int());
+        flatten.axis = axis;
+        flatten.add_input_strings(elem.inputs[0].clone());
+        flatten.add_output_strings(elem.outputs[0].clone());
+        Ok(flatten)
     }
 }
 
-impl<T: Default> CastNode<T> {
+impl<T: Default> FlattenNode<T> {
+    pub fn new(elem: &OnnxOperation) -> Self {
+        let mut flatten = Self {
+            x: String::new(),
+            o: String::new(),
+            unique_id: UniqueId::Flatten,
+            next_node: None,
+            axis: Some(0),
+        };
+        flatten.add_input_strings(elem.inputs[0].clone());
+        flatten.add_output_strings(elem.outputs[0].clone());
+        flatten
+    }
+
     pub fn add_input_strings(&mut self, x: String) {
         self.x = x;
     }
@@ -50,7 +62,7 @@ impl<T: Default> CastNode<T> {
     }
 }
 
-impl<T: Default + 'static> Node<T> for CastNode<T> {
+impl<T: Default + 'static> Node<T> for FlattenNode<T> {
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
@@ -70,9 +82,12 @@ impl<T: Default + 'static> Node<T> for CastNode<T> {
         let [x, o] = omap.get_disjoint_mut([&self.x, &self.o]);
         let x = &*x.unwrap();
 
-        match (o, self.to) {
-            (Some(result), Some(to)) => x.cast(result, to).unwrap(),
-            _ => panic!("CastNode: missing input {}", self.x),
+        match o {
+            Some(result) => {
+                let axis = self.axis.unwrap();
+                x.flatten_op(axis, result).unwrap();
+            }
+            None => panic!("FlattenNode: missing input {}", self.x),
         }
     }
 
@@ -99,7 +114,7 @@ impl<T: Default + 'static> Node<T> for CastNode<T> {
         if let Some(list) = &self.next_node {
             print!("{}-", list.len());
         }
-        println!("cast-{},{}", self.x, self.o);
+        println!("flatten-{},{}", self.x, self.o);
         if let Some(next) = &self.next_node {
             next.iter().for_each(|v| v.print());
         }
@@ -134,9 +149,19 @@ impl<T: Default + 'static> Node<T> for CastNode<T> {
         let x = x.map(|arr| &*arr);
 
         if let (Some(x), Some(o)) = (x, o)
-            && let Some(in_shape) = x.shape()
+            && let (Some(in_shape), Some(axis)) = (x.shape(), self.axis)
         {
-            *o = TypedArray::empty_with_others_type(x, in_shape);
+            let ndim = in_shape.len();
+            let axis = if axis < 0 {
+                (ndim as i64 + axis) as usize
+            } else {
+                axis as usize
+            };
+
+            let dim0: usize = in_shape[..axis].iter().product();
+            let dim1: usize = in_shape[axis..].iter().product();
+
+            *o = TypedArray::empty_with_others_type(x, &[dim0, dim1]);
         }
 
         if let Some(list) = &mut self.next_node {

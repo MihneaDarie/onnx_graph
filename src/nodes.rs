@@ -4,6 +4,7 @@ pub mod argmax;
 pub mod cast;
 pub mod concat;
 pub mod conv;
+pub mod cos;
 pub mod div;
 pub mod gather;
 pub mod gemm;
@@ -23,15 +24,23 @@ pub mod sin;
 pub mod slice;
 pub mod soft_max;
 pub mod split;
+pub mod sqrt;
 pub mod sub;
 pub mod transpose;
 pub mod unique_ids;
-pub mod sqrt;
-pub mod cos;
 
-pub mod less_or_equal;
-pub mod less;
-pub mod greater_or_equal;
 pub mod greater;
+pub mod greater_or_equal;
+pub mod less;
+pub mod less_or_equal;
 
 pub mod is_nan;
+
+pub mod where_op;
+
+pub mod flatten;
+
+pub mod unsqueeze;
+
+pub mod constant_of_shape;
+pub mod range;

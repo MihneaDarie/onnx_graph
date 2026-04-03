@@ -12,7 +12,12 @@ pub enum UniqueId {
     Split,
     Transpose,
 
+    Unsqueeze,
     Cast,
+    Flatten,
+    Where,
+    ConstantOfShape,
+    Range,
 
     LessOrEqual,
     Less,

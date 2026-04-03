@@ -116,7 +116,7 @@ impl<T: Default + 'static> Node<T> for ReluNode<T> {
 
         match o {
             Some(result) => {
-                // x.relu(result).unwrap();
+                x.relu(result).unwrap();
             }
             None => panic!("ReluNode: missing input {}", self.x),
         }

@@ -1,3 +1,4 @@
+use crate::nodes::where_op::WhereNode;
 use std::cell::RefCell;
 use std::fmt::Display;
 use std::mem;
@@ -9,15 +10,17 @@ use crate::{
     argmax_variant, call_activation_source_to_destination, call_argmax_for_typed_array,
     call_concat_for_typed_array, call_gather_for_typed_array, call_maxpool_for_typed_array,
     call_pow_for_typed_array, call_reshape_for_typed_array, call_slice_for_typed_array,
-    call_split_for_typed_array, call_transpose_for_typed_array, concat_variant, discriminant_macro,
-    fix_if_not_contignous, from_shape_vec_from_datatype, gather_variant, get_curent_size_and_shape,
-    impl_pow_variant, impl_typed_binop, impl_typed_binop_with_boolean_output,
-    impl_typed_singleopfunction_with_boolean_ouput,
+    call_split_for_typed_array, call_transpose_for_typed_array, concat_variant,
+    copy_and_cast_from_datatype, discriminant_macro, fill_from_elem, fix_if_not_contignous,
+    from_shape_vec_from_datatype, gather_variant, get_curent_size_and_shape,
+    impl_cast_for_typedarray, impl_pow_variant, impl_typed_binop,
+    impl_typed_binop_with_boolean_output, impl_typed_singleopfunction_with_boolean_ouput,
     impl_typed_singleopfunction_with_the_same_output_type_as_the_output, max_pool_variant,
     reshape_variant, shape_macro, slice_variant, softmax_variant, split_variant, transpose_variant,
     zeros_from_datatype, zeros_from_others_type,
 };
-use ndarray::{Array1, Array4, ArrayD, ArrayView1, Ix1, Ix4, IxDyn};
+use anyhow::{Ok, bail};
+use ndarray::{Array1, Array4, ArrayD, ArrayView1, Dimension, Ix1, Ix4, IxDyn};
 use ndarray::{ArrayView4, ArrayViewMut4, Axis};
 use onnx_extractor::{DataType, OnnxTensor};
 use rayon::iter::IntoParallelRefIterator;
@@ -204,6 +207,334 @@ impl TypedArray {
                 String
             ]
         )
+    }
+
+    pub fn constant_of_shape(&self, value: &TypedArray, o: &mut TypedArray) -> anyhow::Result<()> {
+        let shape: Vec<usize> = match &self {
+            TypedArray::Int64(s) => s.iter().map(|&v| v as usize).collect(),
+            _ => anyhow::bail!("ConstantOfShape: input shape must be I64"),
+        };
+
+        fill_from_elem!(
+            value,
+            &shape,
+            o,
+            [
+                (Float, f32),
+                (Double, f64),
+                (Int8, i8),
+                (Int16, i16),
+                (Int32, i32),
+                (Int64, i64),
+                (Uint8, u8),
+                (Uint16, u16),
+                (Uint32, u32),
+                (Uint64, u64),
+                (Bool, bool)
+            ]
+        );
+
+        Ok(())
+    }
+
+    pub fn range(
+        start: &TypedArray,
+        limit: &TypedArray,
+        delta: &TypedArray,
+        o: &mut TypedArray,
+    ) -> anyhow::Result<()> {
+        macro_rules! range_variant {
+            ($variant:ident, $T:ty) => {{
+                let s = match start {
+                    TypedArray::$variant(a) => *a.iter().next().unwrap(),
+                    _ => anyhow::bail!("Range: start type mismatch"),
+                };
+                let l = match limit {
+                    TypedArray::$variant(a) => *a.iter().next().unwrap(),
+                    _ => anyhow::bail!("Range: limit type mismatch"),
+                };
+                let d = match delta {
+                    TypedArray::$variant(a) => *a.iter().next().unwrap(),
+                    _ => anyhow::bail!("Range: delta type mismatch"),
+                };
+
+                let n = (((l - s) as f64) / (d as f64)).ceil().max(0.0) as usize;
+
+                let needs_alloc = match &*o {
+                    TypedArray::$variant(out) => out.len() != n,
+                    _ => true,
+                };
+
+                if needs_alloc {
+                    let data: Vec<$T> = (0..n).map(|i| s + (i as $T) * d).collect();
+                    *o = TypedArray::$variant(ArrayD::from_shape_vec(IxDyn(&[n]), data)?);
+                } else if let TypedArray::$variant(out) = o {
+                    let dst = out.as_slice_memory_order_mut().unwrap();
+                    for i in 0..n {
+                        dst[i] = s + (i as $T) * d;
+                    }
+                }
+            }};
+        }
+
+        match start {
+            TypedArray::Float(_) => range_variant!(Float, f32),
+            TypedArray::Double(_) => range_variant!(Double, f64),
+            TypedArray::Int16(_) => range_variant!(Int16, i16),
+            TypedArray::Int32(_) => range_variant!(Int32, i32),
+            TypedArray::Int64(_) => range_variant!(Int64, i64),
+            _ => anyhow::bail!("Range: unsupported type"),
+        }
+
+        Ok(())
+    }
+
+    pub fn flatten_op(&self, axis: i64, o: &mut TypedArray) -> anyhow::Result<()> {
+        let rank = self.shape().unwrap().len() as i64;
+        let axis = if axis < 0 { axis + rank } else { axis } as usize;
+
+        let shape = self.shape().unwrap();
+        let dim0: usize = shape[..axis].iter().product::<usize>().max(1);
+        let dim1: usize = shape[axis..].iter().product::<usize>().max(1);
+        let out_shape = IxDyn(&[dim0, dim1]);
+        macro_rules! flatten_typed {
+        ($(($variant:ident, $T:ty)),+) => {
+            match (self, &mut *o) {
+                $(
+                    (TypedArray::$variant(in_arr), TypedArray::$variant(out_arr)) => {
+                        if out_arr.len() != dim0 * dim1 {
+                            *out_arr = ArrayD::<$T>::zeros(out_shape);
+                        } else if out_arr.shape() != out_shape.as_array_view().as_slice().unwrap() {
+                            *out_arr = out_arr.clone().into_shape_with_order(out_shape).unwrap();
+                        }
+
+                        let out_slice = out_arr.as_slice_memory_order_mut().unwrap();
+                        let in_slice = in_arr.as_slice_memory_order().unwrap();
+
+                        out_slice.copy_from_slice(in_slice);
+
+                        Ok(())
+                    }
+                )+
+                (TypedArray::Bool(in_arr), TypedArray::Bool(out_arr)) => {
+                    if out_arr.len() != dim0 * dim1 {
+                        *out_arr = ArrayD::<bool>::from_elem(out_shape, false);
+                    } else if out_arr.shape() != out_shape.as_array_view().as_slice().unwrap() {
+                        *out_arr = out_arr.clone().into_shape_with_order(out_shape).unwrap();
+                    }
+
+                    let out_slice = out_arr.as_slice_memory_order_mut().unwrap();
+                    let in_slice = in_arr.as_slice_memory_order().unwrap();
+
+                    out_slice.copy_from_slice(in_slice);
+
+                    Ok(())
+                }
+                _ => anyhow::bail!("Flatten: input and output must have the same type"),
+            }
+        };
+    }
+
+        flatten_typed!(
+            (Float, f32),
+            (Double, f64),
+            (Int8, i8),
+            (Int16, i16),
+            (Int32, i32),
+            (Int64, i64),
+            (Uint8, u8),
+            (Uint16, u16),
+            (Uint32, u32),
+            (Uint64, u64)
+        )
+    }
+
+    pub fn where_op(
+        condition: &TypedArray,
+        x: &TypedArray,
+        y: &TypedArray,
+        output: &mut TypedArray,
+    ) -> anyhow::Result<()> {
+        let cond = match condition {
+            TypedArray::Bool(c) => c,
+            _ => anyhow::bail!("Where: condition must be Bool"),
+        };
+
+        macro_rules! where_typed {
+            ($(($variant:ident, $T:ty)),+) => {
+                match (x, y, output) {
+                    $(
+                        (
+                            TypedArray::$variant(x_arr),
+                            TypedArray::$variant(y_arr),
+                            TypedArray::$variant(out_arr),
+                        ) => {
+                            let out_shape = WhereNode::<f32>::broadcast_shape(&[
+                                cond.shape(),
+                                x_arr.shape(),
+                                y_arr.shape(),
+                            ])?;
+
+                            if out_arr.shape() != out_shape.as_slice() {
+                                anyhow::bail!("Output shape mismatch");
+                            }
+
+                            let no_broadcast =
+                                cond.shape() == out_shape.as_slice()
+                                && x_arr.shape() == out_shape.as_slice()
+                                && y_arr.shape() == out_shape.as_slice();
+
+                            if no_broadcast {
+                                let out_slice = out_arr.as_slice_memory_order_mut().unwrap();
+                                let c_slice = cond.as_slice_memory_order().unwrap();
+                                let x_slice = x_arr.as_slice_memory_order().unwrap();
+                                let y_slice = y_arr.as_slice_memory_order().unwrap();
+
+                                out_slice
+                                    .par_iter_mut()
+                                    .zip(c_slice.par_iter())
+                                    .zip(x_slice.par_iter())
+                                    .zip(y_slice.par_iter())
+                                    .for_each(|(((o, c), xv), yv)| {
+                                        *o = if *c { *xv } else { *yv };
+                                    });
+                            } else {
+                                let cond_b = cond.broadcast(IxDyn(&out_shape)).unwrap();
+                                let x_b = x_arr.broadcast(IxDyn(&out_shape)).unwrap();
+                                let y_b = y_arr.broadcast(IxDyn(&out_shape)).unwrap();
+
+                                ndarray::Zip::from(out_arr)
+                                    .and(&cond_b)
+                                    .and(&x_b)
+                                    .and(&y_b)
+                                    .par_for_each(|o, c, xv, yv| {
+                                        *o = if *c { *xv } else { *yv };
+                                    });
+                            }
+
+                            Ok(())
+                        }
+                    )+
+
+                    (
+                        TypedArray::Bool(x_arr),
+                        TypedArray::Bool(y_arr),
+                        TypedArray::Bool(out_arr),
+                    ) => {
+                        let out_shape = WhereNode::<f32>::broadcast_shape(&[
+                            cond.shape(),
+                            x_arr.shape(),
+                            y_arr.shape(),
+                        ])?;
+
+                        if out_arr.shape() != out_shape.as_slice() {
+                            anyhow::bail!("Output shape mismatch");
+                        }
+
+                        let no_broadcast =
+                            cond.shape() == out_shape.as_slice()
+                            && x_arr.shape() == out_shape.as_slice()
+                            && y_arr.shape() == out_shape.as_slice();
+
+                        if no_broadcast {
+                            let out_slice = out_arr.as_slice_memory_order_mut().unwrap();
+                            let c_slice = cond.as_slice_memory_order().unwrap();
+                            let x_slice = x_arr.as_slice_memory_order().unwrap();
+                            let y_slice = y_arr.as_slice_memory_order().unwrap();
+
+                            out_slice
+                                .par_iter_mut()
+                                .zip(c_slice.par_iter())
+                                .zip(x_slice.par_iter())
+                                .zip(y_slice.par_iter())
+                                .for_each(|(((o, c), xv), yv)| {
+                                    *o = if *c { *xv } else { *yv };
+                                });
+                        } else {
+                            let cond_b = cond.broadcast(IxDyn(&out_shape)).unwrap();
+                            let x_b = x_arr.broadcast(IxDyn(&out_shape)).unwrap();
+                            let y_b = y_arr.broadcast(IxDyn(&out_shape)).unwrap();
+
+                            ndarray::Zip::from(out_arr)
+                                .and(&cond_b)
+                                .and(&x_b)
+                                .and(&y_b)
+                                .par_for_each(|o, c, xv, yv| {
+                                    *o = if *c { *xv } else { *yv };
+                                });
+                        }
+
+                        Ok(())
+                    }
+
+                    _ => anyhow::bail!("Where: type mismatch"),
+                }
+            };
+        }
+
+        where_typed!(
+            (Float, f32),
+            (Double, f64),
+            (Int8, i8),
+            (Int16, i16),
+            (Int32, i32),
+            (Int64, i64),
+            (Uint8, u8),
+            (Uint16, u16),
+            (Uint32, u32),
+            (Uint64, u64)
+        )
+    }
+
+    pub fn cast(&self, o: &mut TypedArray, to: DataType) -> anyhow::Result<()> {
+        let need_alloc = match (self.shape(), o.shape()) {
+            (None, None) => panic!("Undefined input and ouput arrays !"),
+            (None, Some(o_shape)) => panic!("Mismatching shapes in-None - out-{o_shape:?} !"),
+            (Some(_), None) => true,
+            (Some(in_shape), Some(out_shape)) => in_shape != out_shape,
+        };
+
+        if need_alloc && let Some(in_shape) = self.shape() {
+            *o = zeros_from_datatype!(
+                to,
+                in_shape,
+                [
+                    Float, Uint8, Int8, Uint16, Int16, Int32, Int64, Double, Uint32, Uint64
+                ]
+            );
+        }
+
+        copy_and_cast_from_datatype!(
+            to,
+            self,
+            o,
+            [
+                (Float, f32),
+                (Double, f64),
+                (Int8, i8),
+                (Int16, i16),
+                (Int32, i32),
+                (Int64, i64),
+                (Uint8, u8),
+                (Uint16, u16),
+                (Uint32, u32),
+                (Uint64, u64)
+            ],
+            [
+                (Float, f32),
+                (Double, f64),
+                (Int8, i8),
+                (Int16, i16),
+                (Int32, i32),
+                (Int64, i64),
+                (Uint8, u8),
+                (Uint16, u16),
+                (Uint32, u32),
+                (Uint64, u64)
+            ]
+        );
+
+        Ok(())
     }
 
     pub fn argmax(
@@ -430,8 +761,75 @@ impl TypedArray {
     call_activation_source_to_destination!(
         relu,
         Some(apply_relu),
-        [(Float, relu_f32),(Double, relu_f64)]
+        [(Float, relu_f32), (Double, relu_f64)]
     );
+
+    pub fn unsqueeze(&self, axes: &TypedArray, o: &mut TypedArray) -> anyhow::Result<()> {
+        let axes_vec: Vec<i64> = match axes {
+            TypedArray::Int64(a) => a.iter().copied().collect(),
+            _ => anyhow::bail!("Unsqueeze: axes must be I64"),
+        };
+
+        let in_shape = self
+            .shape()
+            .ok_or_else(|| anyhow::anyhow!("Unsqueeze: undefined input"))?;
+        let output_rank = in_shape.len() + axes_vec.len();
+
+        let mut norm_axes: Vec<usize> = axes_vec
+            .iter()
+            .map(|&a| {
+                if a < 0 {
+                    (output_rank as i64 + a) as usize
+                } else {
+                    a as usize
+                }
+            })
+            .collect();
+        norm_axes.sort();
+
+        let mut out_shape: Vec<usize> = in_shape.to_vec();
+        for &axis in norm_axes.iter() {
+            out_shape.insert(axis, 1);
+        }
+
+        macro_rules! unsqueeze_variant {
+            ($variant:ident, $a:expr) => {{
+                let src = $a.as_slice_memory_order().unwrap();
+                let needs_realloc = match &*o {
+                    TypedArray::$variant(out) => out.shape() != out_shape.as_slice(),
+                    _ => true,
+                };
+                if needs_realloc {
+                    *o = TypedArray::$variant(ArrayD::from_shape_vec(
+                        IxDyn(&out_shape),
+                        src.to_vec(),
+                    )?);
+                } else {
+                    if let TypedArray::$variant(out) = o {
+                        let dst = out.as_slice_memory_order_mut().unwrap();
+                        dst.copy_from_slice(src);
+                    }
+                }
+            }};
+        }
+
+        match self {
+            TypedArray::Float(a) => unsqueeze_variant!(Float, a),
+            TypedArray::Double(a) => unsqueeze_variant!(Double, a),
+            TypedArray::Int32(a) => unsqueeze_variant!(Int32, a),
+            TypedArray::Int64(a) => unsqueeze_variant!(Int64, a),
+            TypedArray::Uint8(a) => unsqueeze_variant!(Uint8, a),
+            TypedArray::Uint16(a) => unsqueeze_variant!(Uint16, a),
+            TypedArray::Uint32(a) => unsqueeze_variant!(Uint32, a),
+            TypedArray::Uint64(a) => unsqueeze_variant!(Uint64, a),
+            TypedArray::Int8(a) => unsqueeze_variant!(Int8, a),
+            TypedArray::Int16(a) => unsqueeze_variant!(Int16, a),
+            TypedArray::Bool(a) => unsqueeze_variant!(Bool, a),
+            _ => anyhow::bail!("Unsqueeze: unsupported type"),
+        }
+
+        Ok(())
+    }
 
     pub fn reshape(
         &self,

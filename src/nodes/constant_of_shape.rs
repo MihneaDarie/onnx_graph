@@ -6,13 +6,14 @@ use crate::{
     typed_array::TypedArray,
 };
 use anyhow::Result;
-use onnx_extractor::{DataType, OnnxOperation};
+use ndarray::{ArrayD, IxDyn};
+use onnx_extractor::{AttributeValue, OnnxOperation};
 
 #[derive(Default)]
-pub struct CastNode<T: Default> {
-    x: String,
+pub struct ConstantOfShapeNode<T: Default> {
+    shape_array: String,
 
-    to: Option<DataType>,
+    value: Option<TypedArray>,
 
     o: String,
 
@@ -21,28 +22,46 @@ pub struct CastNode<T: Default> {
     next_node: Option<Vec<Box<dyn Node<T>>>>,
 }
 
-impl<T: Default> FromOnnxOperation for CastNode<T> {
+impl<T: Default> FromOnnxOperation for ConstantOfShapeNode<T> {
     fn from_onnx_operation(elem: &OnnxOperation) -> Result<Self> {
-        let attrs = &elem.attributes;
-        let to = attrs
-            .get("to")
-            .and_then(|v| v.as_int().map(|val| DataType::from_onnx_type(val as i32)));
-        let mut cast = Self {
-            x: String::new(),
-            to,
+        let mut constant_of_shape = Self {
+            shape_array: String::new(),
+            value: None,
             o: String::new(),
-            unique_id: UniqueId::Cast,
+            unique_id: UniqueId::ConstantOfShape,
             next_node: None,
         };
-        cast.add_input_strings(elem.inputs[0].clone());
-        cast.add_output_strings(elem.outputs[0].clone());
-        Ok(cast)
+
+        let value = elem
+            .attributes
+            .get("value")
+            .and_then(|val| AttributeValue::as_tensor(val))
+            .and_then(|tensor| Some(TypedArray::from_tensor(&tensor)))
+            .or_else(|| Some(TypedArray::Float(ArrayD::zeros(IxDyn(&[1])))));
+        constant_of_shape.value = value;
+
+        constant_of_shape.add_input_strings(elem.inputs[0].clone());
+        constant_of_shape.add_output_strings(elem.outputs[0].clone());
+        Ok(constant_of_shape)
     }
 }
 
-impl<T: Default> CastNode<T> {
+impl<T: Default> ConstantOfShapeNode<T> {
+    pub fn new(elem: &OnnxOperation) -> Self {
+        let mut constant_of_shape = Self {
+            shape_array: String::new(),
+            value: Some(TypedArray::Float(ArrayD::zeros(IxDyn(&[1])))),
+            o: String::new(),
+            unique_id: UniqueId::ConstantOfShape,
+            next_node: None,
+        };
+        constant_of_shape.add_input_strings(elem.inputs[0].clone());
+        constant_of_shape.add_output_strings(elem.outputs[0].clone());
+        constant_of_shape
+    }
+
     pub fn add_input_strings(&mut self, x: String) {
-        self.x = x;
+        self.shape_array = x;
     }
 
     pub fn add_output_strings(&mut self, o: String) {
@@ -50,7 +69,7 @@ impl<T: Default> CastNode<T> {
     }
 }
 
-impl<T: Default + 'static> Node<T> for CastNode<T> {
+impl<T: Default + 'static> Node<T> for ConstantOfShapeNode<T> {
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
@@ -67,12 +86,14 @@ impl<T: Default + 'static> Node<T> for CastNode<T> {
     }
 
     fn execute(&self, omap: &mut TensorMap) {
-        let [x, o] = omap.get_disjoint_mut([&self.x, &self.o]);
-        let x = &*x.unwrap();
+        let [x, o] = omap.get_disjoint_mut([&self.shape_array, &self.o]);
+        let x = x.map(|inner| &*inner);
 
-        match (o, self.to) {
-            (Some(result), Some(to)) => x.cast(result, to).unwrap(),
-            _ => panic!("CastNode: missing input {}", self.x),
+        match (x, o, &self.value) {
+            (Some(x), Some(result), Some(value)) => {
+                x.constant_of_shape(value, result).unwrap();
+            }
+            _ => panic!("ConstantOfShapeNode: missing input {}", self.shape_array),
         }
     }
 
@@ -81,7 +102,7 @@ impl<T: Default + 'static> Node<T> for CastNode<T> {
     }
 
     fn input_names(&self) -> Vec<String> {
-        vec![self.x.clone()]
+        vec![self.shape_array.clone()]
     }
 
     fn take_next(&mut self) -> Option<Vec<Box<dyn Node<T>>>> {
@@ -99,7 +120,7 @@ impl<T: Default + 'static> Node<T> for CastNode<T> {
         if let Some(list) = &self.next_node {
             print!("{}-", list.len());
         }
-        println!("cast-{},{}", self.x, self.o);
+        println!("ConstantOfShape-{},{}", self.shape_array, self.o);
         if let Some(next) = &self.next_node {
             next.iter().for_each(|v| v.print());
         }
@@ -130,13 +151,14 @@ impl<T: Default + 'static> Node<T> for CastNode<T> {
     }
 
     fn determine_output_shape(&mut self, omap: &mut TensorMap) {
-        let [x, o] = omap.get_disjoint_mut([&self.x, &self.o]);
-        let x = x.map(|arr| &*arr);
+        let [x, o] = omap.get_disjoint_mut([&self.shape_array, &self.o]);
+        let x = x.map(|inner| &*inner);
 
-        if let (Some(x), Some(o)) = (x, o)
-            && let Some(in_shape) = x.shape()
-        {
-            *o = TypedArray::empty_with_others_type(x, in_shape);
+        match (x, o, &self.value) {
+            (Some(x), Some(result), Some(value)) => {
+                x.constant_of_shape(value, result).unwrap();
+            }
+            _ => panic!("ConstantOfShapeNode: missing input {}", self.shape_array),
         }
 
         if let Some(list) = &mut self.next_node {

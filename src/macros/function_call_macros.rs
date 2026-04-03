@@ -36,7 +36,6 @@ macro_rules! impl_typed_singleopfunction_with_the_same_output_type_as_the_output
     };
 }
 
-
 #[macro_export]
 macro_rules! impl_typed_singleopfunction_with_boolean_ouput {
     ($name:ident, $method:ident, [$($variant:ident),+], [$($reject:ident),*]) => {
