@@ -1,6 +1,7 @@
 use std::{any::Any, collections::HashMap};
 
 use crate::{
+    call_split_for_typed_array,
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
     tensor_map::TensorMap,
     typed_array::TypedArray,
@@ -183,5 +184,29 @@ impl<T: Default + 'static> Node<T> for SplitNode<T> {
                 next.determine_output_shape(omap);
             }
         }
+    }
+}
+
+impl TypedArray {
+    pub fn split(
+        &self,
+        split: &TypedArray,
+        axis: i64,
+        outputs: &mut Vec<TypedArray>,
+    ) -> anyhow::Result<()> {
+        let splits = match split {
+            TypedArray::Int64(s) => s,
+            _ => return Err(anyhow::anyhow!("split tensor must be I64")),
+        };
+
+        call_split_for_typed_array!(
+            self,
+            axis,
+            splits,
+            outputs,
+            [Float, Double, Int32, Int64, Uint8, Uint16, Uint32, Uint64]
+        );
+
+        Ok(())
     }
 }

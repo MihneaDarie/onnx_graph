@@ -4,6 +4,7 @@ use ndarray::{ArrayD, IxDyn};
 use onnx_extractor::OnnxOperation;
 
 use crate::{
+    impl_typed_binop,
     nodes::{node::Node, unique_ids::UniqueId},
     tensor_map::TensorMap,
     typed_array::TypedArray,
@@ -142,4 +143,8 @@ impl<T: Default + 'static> Node<T> for AndNode<T> {
             }
         }
     }
+}
+
+impl TypedArray {
+    impl_typed_binop!(and_op, &, [Bool]);
 }

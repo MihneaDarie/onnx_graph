@@ -1,6 +1,7 @@
 use std::{any::Any, collections::HashMap};
 
 use crate::{
+    call_argmax_for_typed_array,
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
     tensor_map::TensorMap,
     typed_array::TypedArray,
@@ -177,5 +178,26 @@ impl<T: Default + 'static> Node<T> for ArgMaxNode<T> {
                 next.determine_output_shape(omap);
             }
         }
+    }
+}
+
+impl TypedArray {
+    pub fn argmax(
+        data: &TypedArray,
+        axis: i64,
+        keepdims: bool,
+        select_last_index: bool,
+        o: &mut TypedArray,
+    ) -> anyhow::Result<()> {
+        call_argmax_for_typed_array!(
+            data,
+            axis,
+            keepdims,
+            select_last_index,
+            o,
+            [Float, Double, Int32, Int64, Uint8, Uint16, Uint32, Uint64]
+        );
+
+        Ok(())
     }
 }

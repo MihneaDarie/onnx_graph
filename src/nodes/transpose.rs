@@ -1,6 +1,7 @@
 use std::{any::Any, collections::HashMap};
 
 use crate::{
+    call_transpose_for_typed_array,
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
     tensor_map::TensorMap,
     typed_array::TypedArray,
@@ -173,5 +174,17 @@ impl<T: Default + 'static> Node<T> for TransposeNode<T> {
                 next.determine_output_shape(omap);
             }
         }
+    }
+}
+
+impl TypedArray {
+    pub fn transpose(&self, perm: &[i64], o: &mut TypedArray) -> anyhow::Result<()> {
+        call_transpose_for_typed_array!(
+            self,
+            perm,
+            o,
+            [Float, Double, Int32, Int64, Uint8, Uint16, Uint32, Uint64]
+        );
+        Ok(())
     }
 }

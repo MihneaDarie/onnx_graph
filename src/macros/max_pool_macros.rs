@@ -1,6 +1,11 @@
 #[macro_export]
 macro_rules! call_maxpool_for_typed_array {
     ($self:expr, $kernel:expr, $strides:expr, $pads:expr, $dilations:expr, $ceil_mode:expr, $o:expr, [$($variant:ident),+]) => {
+        use crate::max_pool_variant;
+        use ndarray::ArrayD;
+        use ndarray::IxDyn;
+
+
         match $self {
             $(
                 TypedArray::$variant(x) => {

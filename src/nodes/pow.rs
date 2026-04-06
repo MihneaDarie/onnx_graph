@@ -1,6 +1,7 @@
 use std::{any::Any, collections::HashMap};
 
 use crate::{
+    call_pow_for_typed_array,
     nodes::{node::Node, unique_ids::UniqueId},
     tensor_map::TensorMap,
     typed_array::TypedArray,
@@ -140,5 +141,19 @@ impl<T: Default + 'static> Node<T> for PowNode<T> {
                 next.determine_output_shape(omap);
             }
         }
+    }
+}
+
+impl TypedArray {
+    pub fn pow(&self, b: &TypedArray, o: &mut TypedArray) -> anyhow::Result<()> {
+        let in_shape = self.shape().unwrap();
+        call_pow_for_typed_array!(
+            self,
+            b,
+            o,
+            in_shape,
+            [(Float, f32), (Double, f64), (Int32, i32), (Int64, i64)]
+        );
+        Ok(())
     }
 }

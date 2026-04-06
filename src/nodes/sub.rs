@@ -1,6 +1,7 @@
 use std::{any::Any, collections::HashMap};
 
 use crate::{
+    impl_typed_binop,
     nodes::{node::Node, unique_ids::UniqueId},
     tensor_map::TensorMap,
     typed_array::TypedArray,
@@ -159,4 +160,8 @@ impl<T: Default + 'static> Node<T> for SubNode<T> {
             }
         }
     }
+}
+
+impl TypedArray {
+    impl_typed_binop!(sub, -, [Float, Double, Int32, Int64, Uint8, Uint16, Uint32, Uint64, Int8, Int16]);
 }

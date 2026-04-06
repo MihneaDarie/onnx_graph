@@ -1,6 +1,9 @@
 use std::any::Any;
 
+use saker_rs::linarg::operations::apply_silu;
+
 use crate::{
+    call_activation_source_to_destination,
     nodes::{node::Node, unique_ids::UniqueId},
     tensor_map::TensorMap,
     typed_array::TypedArray,
@@ -125,4 +128,36 @@ impl<T: Default + 'static> Node<T> for SiluNode<T> {
             }
         }
     }
+}
+
+#[inline(always)]
+pub fn aprox_silu_f32(x: f32) -> f32 {
+    if x < -4.0 {
+        0.0
+    } else if x > 4.0 {
+        x
+    } else {
+        let a = 0.25;
+        x * (0.5 + a * x - a * x.abs() * x / 8.0)
+    }
+}
+
+#[inline(always)]
+pub fn aprox_silu_f64(x: f64) -> f64 {
+    if x < -4.0 {
+        0.0
+    } else if x > 4.0 {
+        x
+    } else {
+        let a = 0.25;
+        x * (0.5 + a * x - a * x.abs() * x / 8.0)
+    }
+}
+
+impl TypedArray {
+    call_activation_source_to_destination!(
+        silu,
+        Some(apply_silu),
+        [(Float, aprox_silu_f32), (Double, aprox_silu_f64)]
+    );
 }

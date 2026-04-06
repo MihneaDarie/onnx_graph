@@ -1,6 +1,7 @@
 use std::{any::Any, collections::HashMap};
 
 use crate::{
+    call_slice_for_typed_array,
     nodes::{node::Node, unique_ids::UniqueId},
     tensor_map::TensorMap,
     typed_array::TypedArray,
@@ -202,5 +203,39 @@ impl<T: Default + 'static> Node<T> for SliceNode<T> {
                 next.determine_output_shape(omap);
             }
         }
+    }
+}
+
+impl TypedArray {
+    pub fn slice(
+        &self,
+        starts: &TypedArray,
+        ends: &TypedArray,
+        axes: &TypedArray,
+        o: &mut TypedArray,
+    ) -> anyhow::Result<()> {
+        let starts = match starts {
+            TypedArray::Int64(s) => s,
+            _ => return Err(anyhow::anyhow!("starts must be I64")),
+        };
+        let ends = match ends {
+            TypedArray::Int64(s) => s,
+            _ => return Err(anyhow::anyhow!("ends must be I64")),
+        };
+        let axes = match axes {
+            TypedArray::Int64(s) => s,
+            _ => return Err(anyhow::anyhow!("axes must be I64")),
+        };
+
+        call_slice_for_typed_array!(
+            self,
+            axes,
+            starts,
+            ends,
+            o,
+            [Float, Double, Int32, Int64, Uint8, Uint16, Uint32, Uint64]
+        );
+
+        Ok(())
     }
 }

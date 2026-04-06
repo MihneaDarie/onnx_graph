@@ -1,6 +1,10 @@
 #[macro_export]
 macro_rules! call_reshape_for_typed_array {
     ($self:expr, $new_shape:expr, $o:expr, [$($variant:ident),+]) => {
+        use crate::reshape_variant;
+        use ndarray::IxDyn;
+        use ndarray::ArrayD;
+
         match $self {
             $(
                 TypedArray::$variant(a) => reshape_variant!($variant, $new_shape, a, $o),

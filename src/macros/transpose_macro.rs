@@ -1,6 +1,8 @@
 #[macro_export]
 macro_rules! call_transpose_for_typed_array {
     ($self:expr, $perm:expr, $o:expr, [$($variant:ident),+]) => {
+        use crate::transpose_variant;
+
         match $self {
             $(
                 TypedArray::$variant(a) => transpose_variant!($variant, $perm, a, $o),

@@ -1,6 +1,7 @@
 use std::{any::Any, cell::RefCell, collections::HashMap, str::FromStr};
 
 use crate::{
+    call_maxpool_for_typed_array,
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
     tensor_map::TensorMap,
     typed_array::TypedArray,
@@ -427,5 +428,126 @@ impl<T: Default + 'static> Node<T> for MaxPoolNode<T> {
                 next.determine_output_shape(omap);
             }
         }
+    }
+}
+
+fn maxpool_5x5(input: &ArrayView4<f32>, output: &mut ArrayViewMut4<f32>) {
+    let (_, _, h, w) = input.dim();
+
+    let in_sl = input.as_slice_memory_order().unwrap();
+    let out_sl = output.as_slice_memory_order_mut().unwrap();
+
+    let hw = h * w;
+
+    out_sl
+        .par_chunks_mut(hw)
+        .enumerate()
+        .for_each(|(ch, out_ch)| {
+            let in_ch = &in_sl[ch * hw..(ch + 1) * hw];
+
+            POOL_TMP.with(|cell| {
+                let mut tmp = cell.borrow_mut();
+                tmp.resize(hw, f32::NEG_INFINITY);
+
+                for y in 0..h {
+                    let row = y * w;
+                    let tmp_row = &mut tmp[row..row + w];
+
+                    for x in 0..w {
+                        let x0 = x.saturating_sub(2);
+                        let x1 = x.saturating_sub(1);
+                        let x2 = x;
+                        let x3 = (x + 1).min(w - 1);
+                        let x4 = (x + 2).min(w - 1);
+
+                        unsafe {
+                            let a = *in_ch.get_unchecked(row + x0);
+                            let b = *in_ch.get_unchecked(row + x1);
+                            let c = *in_ch.get_unchecked(row + x2);
+                            let d = *in_ch.get_unchecked(row + x3);
+                            let e = *in_ch.get_unchecked(row + x4);
+                            *tmp_row.get_unchecked_mut(x) = max5(&a, &b, &c, &d, &e);
+                        }
+                    }
+                }
+
+                for y in 0..h {
+                    let y0 = y.saturating_sub(2);
+                    let y1 = y.saturating_sub(1);
+                    let y2 = y;
+                    let y3 = (y + 1).min(h - 1);
+                    let y4 = (y + 2).min(h - 1);
+
+                    let r0 = y0 * w;
+                    let r1 = y1 * w;
+                    let r2 = y2 * w;
+                    let r3 = y3 * w;
+                    let r4 = y4 * w;
+
+                    let out_row = &mut out_ch[y * w..y * w + w];
+
+                    for x in 0..w {
+                        unsafe {
+                            let a = *tmp.get_unchecked(r0 + x);
+                            let b = *tmp.get_unchecked(r1 + x);
+                            let c0 = *tmp.get_unchecked(r2 + x);
+                            let d = *tmp.get_unchecked(r3 + x);
+                            let e = *tmp.get_unchecked(r4 + x);
+                            *out_row.get_unchecked_mut(x) = max5(&a, &b, &c0, &d, &e);
+                        }
+                    }
+                }
+            });
+        });
+}
+
+#[inline(always)]
+fn max5(a: &f32, b: &f32, c: &f32, d: &f32, e: &f32) -> f32 {
+    a.max(*b).max(*c).max(*d).max(*e)
+}
+
+impl TypedArray {
+    pub fn max_pool(
+        &self,
+        kernel: &[usize],
+        strides: &[usize],
+        pads: &[usize],
+        dilations: &[usize],
+        ceil_mode: bool,
+        o: &mut TypedArray,
+    ) -> anyhow::Result<()> {
+        if let TypedArray::Float(x) = self {
+            let kh = kernel[0];
+            let kw = kernel[1];
+            let sh = strides.first().copied().unwrap_or(1);
+            let sw = strides.get(1).copied().unwrap_or(1);
+            let ph = pads.first().copied().unwrap_or(0);
+            let pw = pads.get(1).copied().unwrap_or(0);
+            let dh = dilations.first().copied().unwrap_or(1);
+            let dw = dilations.get(1).copied().unwrap_or(1);
+
+            if kh == 5 && kw == 5 && sh == 1 && sw == 1 && ph == 2 && pw == 2 && dh == 1 && dw == 1
+            {
+                let x4 = x.view().into_dimensionality::<Ix4>()?;
+                if let TypedArray::Float(o) = o {
+                    let mut out4 = o.view_mut().into_dimensionality::<Ix4>()?;
+                    maxpool_5x5(&x4, &mut out4);
+                }
+                return Ok(());
+            }
+        }
+
+        call_maxpool_for_typed_array!(
+            self,
+            kernel,
+            strides,
+            pads,
+            dilations,
+            ceil_mode,
+            o,
+            [Float, Double, Int32, Int64, Uint8, Uint16, Uint32, Uint64]
+        );
+
+        Ok(())
     }
 }

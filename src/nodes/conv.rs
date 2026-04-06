@@ -13,6 +13,7 @@ pub struct Conv2D {
 }
 
 use anyhow::{Ok, Result};
+use ndarray::{Ix1, Ix4};
 use onnx_extractor::{AttributeValue, OnnxOperation};
 use saker_rs::activations::Activation;
 
@@ -309,6 +310,39 @@ impl<T: Default + 'static> Node<T> for ConvNode<T> {
             for next in list {
                 next.determine_output_shape(omap);
             }
+        }
+    }
+}
+
+impl TypedArray {
+    pub fn conv(
+        &self,
+        w: &TypedArray,
+        bias: Option<&TypedArray>,
+        cfg: &Conv2D,
+        o: &mut TypedArray,
+        activation: Activation,
+    ) -> anyhow::Result<()> {
+        match (self, w, o) {
+            (TypedArray::Float(x), TypedArray::Float(w), TypedArray::Float(o)) => {
+                let x4 = x.view().into_dimensionality::<Ix4>()?;
+                let w4 = w.view().into_dimensionality::<Ix4>()?;
+                let mut out = o.view_mut().into_dimensionality::<Ix4>()?;
+
+                let bias = bias
+                    .map(|b| match b {
+                        TypedArray::Float(b) => Ok(b.view().into_dimensionality::<Ix1>()?),
+                        _ => Err(anyhow::anyhow!("bias must be F32")),
+                    })
+                    .transpose()?;
+
+                Self::conv_silu_into(&x4, &w4, bias, cfg, &mut out, activation)?;
+                Ok(())
+            }
+            (TypedArray::Undefined, _, _)
+            | (_, TypedArray::Undefined, _)
+            | (_, _, TypedArray::Undefined) => Err(anyhow::anyhow!("undefined type in conv")),
+            _ => Err(anyhow::anyhow!("unsupported or mismatched types for conv")),
         }
     }
 }

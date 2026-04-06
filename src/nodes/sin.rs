@@ -1,6 +1,7 @@
 use std::{any::Any, collections::HashMap};
 
 use crate::{
+    impl_typed_singleopfunction_with_the_same_output_type_as_the_output,
     nodes::{node::Node, unique_ids::UniqueId},
     tensor_map::TensorMap,
     typed_array::TypedArray,
@@ -138,4 +139,15 @@ impl<T: Default + 'static> Node<T> for SinNode<T> {
             }
         }
     }
+}
+
+impl TypedArray {
+    impl_typed_singleopfunction_with_the_same_output_type_as_the_output!(
+        sin_op,
+        sin,
+        [Float, Double],
+        [
+            Uint16, Uint32, Uint64, Uint8, Int16, Int32, Int64, Int8, String, Bool
+        ]
+    );
 }

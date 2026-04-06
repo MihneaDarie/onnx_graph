@@ -1,8 +1,10 @@
 use std::any::Any;
 
 use onnx_extractor::OnnxOperation;
+use saker_rs::linarg::operations::apply_relu;
 
 use crate::{
+    call_activation_source_to_destination,
     nodes::{node::Node, unique_ids::UniqueId},
     tensor_map::TensorMap,
     typed_array::TypedArray,
@@ -138,4 +140,22 @@ impl<T: Default + 'static> Node<T> for ReluNode<T> {
             }
         }
     }
+}
+
+#[inline(always)]
+pub fn relu_f64(x: f64) -> f64 {
+    x.max(0.0f64)
+}
+
+#[inline(always)]
+pub fn relu_f32(x: f32) -> f32 {
+    x.max(0.0f32)
+}
+
+impl TypedArray {
+    call_activation_source_to_destination!(
+        relu,
+        Some(apply_relu),
+        [(Float, relu_f32), (Double, relu_f64)]
+    );
 }

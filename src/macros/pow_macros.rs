@@ -1,6 +1,14 @@
 #[macro_export]
 macro_rules! call_pow_for_typed_array {
     ($self:expr, $b:expr, $o:expr, $in_shape:expr, [$(($variant:ident, $T:ty)),+]) => {
+        use crate::impl_pow_variant;
+        use ndarray::ArrayD;
+        use ndarray::IxDyn;
+        use rayon::iter::IndexedParallelIterator;
+        use rayon::iter::IntoParallelRefIterator;
+        use rayon::iter::IntoParallelRefMutIterator;
+        use rayon::iter::ParallelIterator;
+
         match $self {
             $(
                 TypedArray::$variant(a) => impl_pow_variant!($variant, $T, a, $b, $o, $in_shape),
@@ -36,7 +44,10 @@ macro_rules! impl_pow_variant {
                         .for_each(|(d, (s, p))| *d = (*s as f64).powf(*p as f64) as $T);
                 }};
                 (int, $b_arr:expr) => {{
-                    let b = $b_arr.as_slice_memory_order().unwrap();
+                    let b = $b_arr
+                        .as_slice_memory_order()
+                        .expect("Couldn't extract the power of the exponent for integer !");
+
                     dst.par_iter_mut()
                         .zip(src.par_iter().zip(b.par_iter()))
                         .for_each(|(d, (s, p))| *d = (*s as f64).powi(*p as i32) as $T);

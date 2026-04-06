@@ -3,6 +3,7 @@ use std::any::Any;
 use onnx_extractor::OnnxOperation;
 
 use crate::{
+    impl_typed_singleopfunction_with_the_same_output_type_as_the_output,
     nodes::{node::Node, unique_ids::UniqueId},
     tensor_map::TensorMap,
     typed_array::TypedArray,
@@ -138,4 +139,15 @@ impl<T: Default + 'static> Node<T> for NegNode<T> {
             }
         }
     }
+}
+
+use std::ops::Neg;
+
+impl TypedArray {
+    impl_typed_singleopfunction_with_the_same_output_type_as_the_output!(
+        neg,
+        neg,
+        [Float, Double, Int32, Int64, Int8, Int16],
+        [Uint8, Uint16, Uint32, Uint64]
+    );
 }

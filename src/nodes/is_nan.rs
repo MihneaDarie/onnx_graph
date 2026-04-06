@@ -1,6 +1,7 @@
 use std::{any::Any, collections::HashMap};
 
 use crate::{
+    impl_typed_singleopfunction_with_boolean_ouput,
     nodes::{node::Node, unique_ids::UniqueId},
     tensor_map::TensorMap,
     typed_array::TypedArray,
@@ -138,4 +139,13 @@ impl<T: Default + 'static> Node<T> for IsNanNode<T> {
             }
         }
     }
+}
+
+impl TypedArray {
+    impl_typed_singleopfunction_with_boolean_ouput!(
+        is_nan_op,
+        is_nan,
+        [Float, Double],
+        [Uint8, Uint16, Uint32, Uint64, Int32, Int64, Int8, Int16]
+    );
 }

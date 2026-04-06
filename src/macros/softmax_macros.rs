@@ -1,6 +1,8 @@
 #[macro_export]
 macro_rules! softmax_variant {
     ($variant:ident, $axis:expr, $a:expr, $o:expr, $T:ty) => {{
+        use ndarray::Axis;
+
         let ndim = $a.ndim() as i64;
         let axis = if $axis < 0 {
             (ndim + $axis) as usize

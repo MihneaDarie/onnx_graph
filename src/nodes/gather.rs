@@ -1,6 +1,7 @@
 use std::{any::Any, collections::HashMap};
 
 use crate::{
+    call_gather_for_typed_array,
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
     tensor_map::TensorMap,
     typed_array::TypedArray,
@@ -174,5 +175,36 @@ impl<T: Default + 'static> Node<T> for GatherNode<T> {
                 next.determine_output_shape(omap);
             }
         }
+    }
+}
+
+impl TypedArray {
+    pub fn gather(
+        data: &TypedArray,
+        indices: &TypedArray,
+        axis: i64,
+        o: &mut TypedArray,
+    ) -> anyhow::Result<()> {
+        let idx_vec: Vec<i64> = match indices {
+            TypedArray::Int64(arr) => arr.iter().copied().collect(),
+            TypedArray::Int32(arr) => arr.iter().map(|&v| v as i64).collect(),
+            _ => return Err(anyhow::anyhow!("Gather: indices must be I32 or I64")),
+        };
+        let idx_shape: Vec<usize> = match indices {
+            TypedArray::Int64(arr) => arr.shape().to_vec(),
+            TypedArray::Int32(arr) => arr.shape().to_vec(),
+            _ => unreachable!(),
+        };
+
+        call_gather_for_typed_array!(
+            data,
+            axis,
+            idx_vec,
+            idx_shape,
+            o,
+            [Float, Double, Int32, Int64, Uint8, Uint16, Uint32, Uint64]
+        );
+
+        Ok(())
     }
 }

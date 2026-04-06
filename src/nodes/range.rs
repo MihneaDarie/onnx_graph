@@ -142,3 +142,59 @@ impl<T: Default + 'static> Node<T> for RangeNode<T> {
         }
     }
 }
+
+impl TypedArray {
+    pub fn range(
+        start: &TypedArray,
+        limit: &TypedArray,
+        delta: &TypedArray,
+        o: &mut TypedArray,
+    ) -> anyhow::Result<()> {
+        macro_rules! range_variant {
+            ($variant:ident, $T:ty) => {{
+                use ndarray::ArrayD;
+                use ndarray::IxDyn;
+                let s = match start {
+                    TypedArray::$variant(a) => *a.iter().next().unwrap(),
+                    _ => anyhow::bail!("Range: start type mismatch"),
+                };
+                let l = match limit {
+                    TypedArray::$variant(a) => *a.iter().next().unwrap(),
+                    _ => anyhow::bail!("Range: limit type mismatch"),
+                };
+                let d = match delta {
+                    TypedArray::$variant(a) => *a.iter().next().unwrap(),
+                    _ => anyhow::bail!("Range: delta type mismatch"),
+                };
+
+                let n = (((l - s) as f64) / (d as f64)).ceil().max(0.0) as usize;
+
+                let needs_alloc = match &*o {
+                    TypedArray::$variant(out) => out.len() != n,
+                    _ => true,
+                };
+
+                if needs_alloc {
+                    let data: Vec<$T> = (0..n).map(|i| s + (i as $T) * d).collect();
+                    *o = TypedArray::$variant(ArrayD::from_shape_vec(IxDyn(&[n]), data)?);
+                } else if let TypedArray::$variant(out) = o {
+                    let dst = out.as_slice_memory_order_mut().unwrap();
+                    for i in 0..n {
+                        dst[i] = s + (i as $T) * d;
+                    }
+                }
+            }};
+        }
+
+        match start {
+            TypedArray::Float(_) => range_variant!(Float, f32),
+            TypedArray::Double(_) => range_variant!(Double, f64),
+            TypedArray::Int16(_) => range_variant!(Int16, i16),
+            TypedArray::Int32(_) => range_variant!(Int32, i32),
+            TypedArray::Int64(_) => range_variant!(Int64, i64),
+            _ => anyhow::bail!("Range: unsupported type"),
+        }
+
+        Ok(())
+    }
+}

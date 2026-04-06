@@ -119,6 +119,12 @@ macro_rules! cast_bool_to_dst {
 #[macro_export]
 macro_rules! copy_and_cast_from_datatype {
     ($data_type:expr, $src:expr, $out:expr, [$(($variant_src:ident, $T_src:ty)),+], $dst_list:tt) => {
+        use ndarray::ArrayD;
+        use rayon::iter::IndexedParallelIterator;
+        use rayon::iter::IntoParallelRefIterator;
+        use rayon::iter::IntoParallelRefMutIterator;
+        use rayon::iter::ParallelIterator;
+
         match $src {
             $(
                 TypedArray::$variant_src(arr_base) => {

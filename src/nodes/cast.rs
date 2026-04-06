@@ -1,9 +1,11 @@
 use std::{any::Any, collections::HashMap};
 
 use crate::{
+    copy_and_cast_from_datatype,
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
     tensor_map::TensorMap,
     typed_array::TypedArray,
+    zeros_from_datatype,
 };
 use anyhow::Result;
 use onnx_extractor::{DataType, OnnxOperation};
@@ -144,5 +146,58 @@ impl<T: Default + 'static> Node<T> for CastNode<T> {
                 next.determine_output_shape(omap);
             }
         }
+    }
+}
+
+impl TypedArray {
+    pub fn cast(&self, o: &mut TypedArray, to: DataType) -> anyhow::Result<()> {
+        let need_alloc = match (self.shape(), o.shape()) {
+            (None, None) => panic!("Undefined input and ouput arrays !"),
+            (None, Some(o_shape)) => panic!("Mismatching shapes in-None - out-{o_shape:?} !"),
+            (Some(_), None) => true,
+            (Some(in_shape), Some(out_shape)) => in_shape != out_shape,
+        };
+
+        if need_alloc && let Some(in_shape) = self.shape() {
+            *o = zeros_from_datatype!(
+                to,
+                in_shape,
+                [
+                    Float, Uint8, Int8, Uint16, Int16, Int32, Int64, Double, Uint32, Uint64
+                ]
+            );
+        }
+
+        copy_and_cast_from_datatype!(
+            to,
+            self,
+            o,
+            [
+                (Float, f32),
+                (Double, f64),
+                (Int8, i8),
+                (Int16, i16),
+                (Int32, i32),
+                (Int64, i64),
+                (Uint8, u8),
+                (Uint16, u16),
+                (Uint32, u32),
+                (Uint64, u64)
+            ],
+            [
+                (Float, f32),
+                (Double, f64),
+                (Int8, i8),
+                (Int16, i16),
+                (Int32, i32),
+                (Int64, i64),
+                (Uint8, u8),
+                (Uint16, u16),
+                (Uint32, u32),
+                (Uint64, u64)
+            ]
+        );
+
+        Ok(())
     }
 }

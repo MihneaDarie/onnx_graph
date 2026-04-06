@@ -1,6 +1,9 @@
 #[macro_export]
 macro_rules! call_concat_for_typed_array {
     ($first:expr, $arrays:expr, $axis:expr, $o:expr, [$($variant:ident),+]) => {
+        use crate::concat_variant;
+        use ndarray::Axis;      
+
         match $first {
             $(
                 TypedArray::$variant(_) => concat_variant!($variant, $arrays, $axis, $o),

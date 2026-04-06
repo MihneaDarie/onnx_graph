@@ -171,3 +171,69 @@ impl<T: Default + 'static> Node<T> for FlattenNode<T> {
         }
     }
 }
+
+impl TypedArray {
+    pub fn flatten_op(&self, axis: i64, o: &mut TypedArray) -> anyhow::Result<()> {
+        use ndarray::ArrayD;
+        use ndarray::Dimension;
+        use ndarray::IxDyn;
+
+        let rank = self.shape().unwrap().len() as i64;
+        let axis = if axis < 0 { axis + rank } else { axis } as usize;
+
+        let shape = self.shape().unwrap();
+        let dim0: usize = shape[..axis].iter().product::<usize>().max(1);
+        let dim1: usize = shape[axis..].iter().product::<usize>().max(1);
+        let out_shape = IxDyn(&[dim0, dim1]);
+        macro_rules! flatten_typed {
+        ($(($variant:ident, $T:ty)),+) => {
+            match (self, &mut *o) {
+                $(
+                    (TypedArray::$variant(in_arr), TypedArray::$variant(out_arr)) => {
+                        if out_arr.len() != dim0 * dim1 {
+                            *out_arr = ArrayD::<$T>::zeros(out_shape);
+                        } else if out_arr.shape() != out_shape.as_array_view().as_slice().unwrap() {
+                            *out_arr = out_arr.clone().into_shape_with_order(out_shape).unwrap();
+                        }
+
+                        let out_slice = out_arr.as_slice_memory_order_mut().unwrap();
+                        let in_slice = in_arr.as_slice_memory_order().unwrap();
+
+                        out_slice.copy_from_slice(in_slice);
+
+                        Ok(())
+                    }
+                )+
+                (TypedArray::Bool(in_arr), TypedArray::Bool(out_arr)) => {
+                    if out_arr.len() != dim0 * dim1 {
+                        *out_arr = ArrayD::<bool>::from_elem(out_shape, false);
+                    } else if out_arr.shape() != out_shape.as_array_view().as_slice().unwrap() {
+                        *out_arr = out_arr.clone().into_shape_with_order(out_shape).unwrap();
+                    }
+
+                    let out_slice = out_arr.as_slice_memory_order_mut().unwrap();
+                    let in_slice = in_arr.as_slice_memory_order().unwrap();
+
+                    out_slice.copy_from_slice(in_slice);
+
+                    Ok(())
+                }
+                _ => anyhow::bail!("Flatten: input and output must have the same type"),
+            }
+        };
+    }
+
+        flatten_typed!(
+            (Float, f32),
+            (Double, f64),
+            (Int8, i8),
+            (Int16, i16),
+            (Int32, i32),
+            (Int64, i64),
+            (Uint8, u8),
+            (Uint16, u16),
+            (Uint32, u32),
+            (Uint64, u64)
+        )
+    }
+}

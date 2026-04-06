@@ -172,3 +172,49 @@ impl<T: Default + 'static> Node<T> for ShapeNode<T> {
         }
     }
 }
+
+impl TypedArray {
+    pub fn shape_op(
+        data: &TypedArray,
+        start: i64,
+        end: Option<i64>,
+        o: &mut TypedArray,
+    ) -> anyhow::Result<()> {
+        let shape: Vec<i64> = data
+            .shape()
+            .unwrap()
+            .iter()
+            .map(|val| *val as i64)
+            .collect();
+
+        let r = shape.len() as i64;
+
+        let start = if start < 0 {
+            (r + start).max(0) as usize
+        } else {
+            (start as usize).min(r as usize)
+        };
+
+        let end = match end {
+            Some(e) => {
+                if e < 0 {
+                    (r + e).max(0) as usize
+                } else {
+                    (e as usize).min(r as usize)
+                }
+            }
+            None => r as usize,
+        };
+
+        let sliced: Vec<i64> = if start >= end {
+            vec![]
+        } else {
+            shape[start..end].to_vec()
+        };
+
+        let len = sliced.len();
+        *o = TypedArray::Int64(ArrayD::from_shape_vec(IxDyn(&[len]), sliced).unwrap());
+
+        Ok(())
+    }
+}

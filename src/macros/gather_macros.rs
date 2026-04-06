@@ -1,6 +1,8 @@
 #[macro_export]
 macro_rules! call_gather_for_typed_array {
     ($data:expr, $axis:expr, $idx_vec:expr, $idx_shape:expr, $o:expr, [$($variant:ident),+]) => {
+        use crate::gather_variant;
+
         match $data {
             $(
                 TypedArray::$variant(arr) => gather_variant!($variant, $axis, $idx_vec, $idx_shape, arr, $o),

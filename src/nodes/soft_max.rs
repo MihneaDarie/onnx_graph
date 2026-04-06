@@ -2,6 +2,7 @@ use std::{any::Any, collections::HashMap};
 
 use crate::{
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
+    softmax_variant,
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -159,5 +160,15 @@ impl<T: Default + 'static> Node<T> for SoftMaxNode<T> {
                 next.determine_output_shape(omap);
             }
         }
+    }
+}
+impl TypedArray {
+    pub fn softmax(&self, axis: i64, o: &mut TypedArray) -> anyhow::Result<()> {
+        match self {
+            TypedArray::Float(a) => softmax_variant!(Float, axis, a, o, f32),
+            TypedArray::Double(a) => softmax_variant!(Double, axis, a, o, f64),
+            _ => return Err(anyhow::anyhow!("softmax only supported for F32/F64")),
+        }
+        Ok(())
     }
 }

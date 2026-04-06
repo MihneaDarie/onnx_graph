@@ -2,6 +2,11 @@
 macro_rules! impl_typed_binop {
     ($name:ident, $op:tt, [$($variant:ident),+]) => {
         pub fn $name(&self, b: &TypedArray, o: &mut TypedArray) -> anyhow::Result<()> {
+            use rayon::iter::IndexedParallelIterator;
+            use rayon::iter::IntoParallelRefIterator;
+            use rayon::iter::IntoParallelRefMutIterator;
+            use rayon::iter::ParallelIterator;
+
             match (self, b) {
                 $(
                     (TypedArray::$variant(a), TypedArray::$variant(b)) => {
@@ -36,6 +41,11 @@ macro_rules! impl_typed_binop {
 macro_rules! impl_typed_binop_with_boolean_output {
     ($name:ident, $op:expr, [$($variant:ident),+]) => {
         pub fn $name(&self, b: &TypedArray, o: &mut TypedArray) -> anyhow::Result<()> {
+            use rayon::iter::IndexedParallelIterator;
+            use rayon::iter::IntoParallelRefIterator;
+            use rayon::iter::IntoParallelRefMutIterator;
+            use rayon::iter::ParallelIterator;
+
             match (self, b) {
                 $(
                     (TypedArray::$variant(a), TypedArray::$variant(b)) => {

@@ -1,6 +1,8 @@
 #[macro_export]
 macro_rules! call_argmax_for_typed_array {
     ($data:expr, $axis:expr, $keepdims:expr, $select_last_index:expr, $o:expr, [$($variant:ident),+]) => {
+        use crate::argmax_variant;
+
         match $data {
             $(
                 TypedArray::$variant(arr) => argmax_variant!(arr, $axis, $keepdims, $select_last_index, $o),

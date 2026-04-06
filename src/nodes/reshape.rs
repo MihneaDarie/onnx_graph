@@ -1,6 +1,7 @@
 use std::{any::Any, collections::HashMap};
 
 use crate::{
+    call_reshape_for_typed_array, get_curent_size_and_shape,
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
     tensor_map::TensorMap,
     typed_array::TypedArray,
@@ -198,5 +199,63 @@ impl<T: Default + 'static> Node<T> for ReshapeNode<T> {
                 next.determine_output_shape(omap);
             }
         }
+    }
+}
+
+impl TypedArray {
+    pub fn reshape(
+        &self,
+        shape: &TypedArray,
+        allow_zero: bool,
+        o: &mut TypedArray,
+    ) -> anyhow::Result<()> {
+        let shape_arr = match shape {
+            TypedArray::Int64(s) => s,
+            _ => return Err(anyhow::anyhow!("reshape shape tensor must be I64")),
+        };
+
+        let (current_size, current_shape) = get_curent_size_and_shape!(
+            self,
+            [
+                Float, Uint8, Int8, Uint16, Int16, Int32, Int64, Double, Uint32, Uint64, Bool
+            ]
+        );
+
+        let mut new_shape: Vec<usize> = shape_arr
+            .iter()
+            .enumerate()
+            .map(|(i, &dim)| {
+                if dim == -1 {
+                    0
+                } else if dim == 0 {
+                    if allow_zero {
+                        0
+                    } else {
+                        *current_shape.get(i).unwrap_or(&0)
+                    }
+                } else {
+                    dim as usize
+                }
+            })
+            .collect();
+
+        if let Some(idx) = shape_arr.iter().position(|&d| d == -1) {
+            let known: usize = new_shape
+                .iter()
+                .enumerate()
+                .filter(|&(i, _)| i != idx)
+                .map(|(_, &d)| if d == 0 { 1 } else { d })
+                .product();
+            new_shape[idx] = current_size / known;
+        }
+
+        call_reshape_for_typed_array!(
+            self,
+            new_shape,
+            o,
+            [Float, Double, Int32, Int64, Uint8, Uint16, Uint32, Uint64]
+        );
+
+        Ok(())
     }
 }

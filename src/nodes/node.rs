@@ -9,8 +9,6 @@ use crate::{
     tensor_map::{TensorMap, UnsafeSendMut},
 };
 
-pub fn fuse_silu() {}
-
 pub trait Node<T: Default + 'static>: Send + Sync {
     fn pass(&self, omap: &mut TensorMap) {
         self.execute(omap);

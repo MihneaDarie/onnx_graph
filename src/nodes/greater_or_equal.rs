@@ -1,6 +1,7 @@
 use std::{any::Any, collections::HashMap};
 
 use crate::{
+    impl_typed_binop_with_boolean_output,
     nodes::{node::Node, unique_ids::UniqueId},
     tensor_map::TensorMap,
     typed_array::TypedArray,
@@ -67,7 +68,7 @@ impl<T: Default + 'static> Node<T> for GreaterOrEqualNode<T> {
 
         match o {
             Some(result) => {
-                a.less_or_equal_op(b, result).unwrap();
+                a.greater_or_equal_op(b, result).unwrap();
             }
             None => panic!("GreaterOrEqualNode: missing input {}", self.a),
         }
@@ -142,4 +143,14 @@ impl<T: Default + 'static> Node<T> for GreaterOrEqualNode<T> {
             }
         }
     }
+}
+
+impl TypedArray {
+    impl_typed_binop_with_boolean_output!(
+        greater_or_equal_op,
+        |a, b| a >= b,
+        [
+            Double, Float, Int16, Int32, Int64, Int8, Uint16, Uint32, Uint64, Uint8
+        ]
+    );
 }

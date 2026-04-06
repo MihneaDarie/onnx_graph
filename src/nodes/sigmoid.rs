@@ -1,12 +1,17 @@
 use std::{any::Any, collections::HashMap};
 
 use crate::{
+    call_activation_source_to_destination,
     nodes::{node::Node, unique_ids::UniqueId},
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
 use anyhow::Result;
 use onnx_extractor::OnnxOperation;
+use saker_rs::linarg::{
+    operations::apply_sigmoid,
+    utils::{aprox_silu_f32, aprox_silu_f64},
+};
 
 #[derive(Default)]
 pub struct SigmoidNode<T: Default> {
@@ -138,4 +143,22 @@ impl<T: Default + 'static> Node<T> for SigmoidNode<T> {
             }
         }
     }
+}
+
+#[inline(always)]
+pub fn aprox_sigmoid_f32(x: f32) -> f32 {
+    aprox_silu_f32(x) / x
+}
+
+#[inline(always)]
+pub fn aprox_sigmoid_f64(x: f64) -> f64 {
+    aprox_silu_f64(x) / x
+}
+
+impl TypedArray {
+    call_activation_source_to_destination!(
+        sigmoid,
+        Some(apply_sigmoid),
+        [(Float, aprox_sigmoid_f32), (Double, aprox_sigmoid_f64)]
+    );
 }

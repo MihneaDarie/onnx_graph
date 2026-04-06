@@ -1,6 +1,9 @@
 #[macro_export]
 macro_rules! call_split_for_typed_array {
     ($self:expr, $axis:expr, $splits:expr, $outputs:expr, [$($variant:ident),+]) => {
+        use crate::split_variant;
+        use ndarray::IxDyn;
+        
         match $self {
             $(
                 TypedArray::$variant(a) => split_variant!($variant, $axis, $splits, a, $outputs),

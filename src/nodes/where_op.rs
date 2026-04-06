@@ -168,3 +168,154 @@ impl<T: Default + 'static> Node<T> for WhereNode<T> {
         }
     }
 }
+
+impl TypedArray {
+    pub fn where_op(
+        condition: &TypedArray,
+        x: &TypedArray,
+        y: &TypedArray,
+        output: &mut TypedArray,
+    ) -> anyhow::Result<()> {
+        let cond = match condition {
+            TypedArray::Bool(c) => c,
+            _ => anyhow::bail!("Where: condition must be Bool"),
+        };
+
+        macro_rules! where_typed {
+            ($(($variant:ident, $T:ty)),+) => {
+                match (x, y, output) {
+                    $(
+                        (
+                            TypedArray::$variant(x_arr),
+                            TypedArray::$variant(y_arr),
+                            TypedArray::$variant(out_arr),
+                        ) => {
+                            use ndarray::IxDyn;
+                            use rayon::iter::IndexedParallelIterator;
+                            use rayon::iter::IntoParallelRefIterator;
+                            use rayon::iter::IntoParallelRefMutIterator;
+                            use rayon::iter::ParallelIterator;
+
+                            let out_shape = WhereNode::<f32>::broadcast_shape(&[
+                                cond.shape(),
+                                x_arr.shape(),
+                                y_arr.shape(),
+                            ])?;
+
+                            if out_arr.shape() != out_shape.as_slice() {
+                                anyhow::bail!("Output shape mismatch");
+                            }
+
+                            let no_broadcast =
+                                cond.shape() == out_shape.as_slice()
+                                && x_arr.shape() == out_shape.as_slice()
+                                && y_arr.shape() == out_shape.as_slice();
+
+                            if no_broadcast {
+                                let out_slice = out_arr.as_slice_memory_order_mut().unwrap();
+                                let c_slice = cond.as_slice_memory_order().unwrap();
+                                let x_slice = x_arr.as_slice_memory_order().unwrap();
+                                let y_slice = y_arr.as_slice_memory_order().unwrap();
+
+                                out_slice
+                                    .par_iter_mut()
+                                    .zip(c_slice.par_iter())
+                                    .zip(x_slice.par_iter())
+                                    .zip(y_slice.par_iter())
+                                    .for_each(|(((o, c), xv), yv)| {
+                                        *o = if *c { *xv } else { *yv };
+                                    });
+                            } else {
+                                let cond_b = cond.broadcast(IxDyn(&out_shape)).unwrap();
+                                let x_b = x_arr.broadcast(IxDyn(&out_shape)).unwrap();
+                                let y_b = y_arr.broadcast(IxDyn(&out_shape)).unwrap();
+
+                                ndarray::Zip::from(out_arr)
+                                    .and(&cond_b)
+                                    .and(&x_b)
+                                    .and(&y_b)
+                                    .par_for_each(|o, c, xv, yv| {
+                                        *o = if *c { *xv } else { *yv };
+                                    });
+                            }
+
+                            Ok(())
+                        }
+                    )+
+
+                    (
+                        TypedArray::Bool(x_arr),
+                        TypedArray::Bool(y_arr),
+                        TypedArray::Bool(out_arr),
+                    ) => {
+                        use ndarray::IxDyn;
+                        use rayon::iter::IndexedParallelIterator;
+                        use rayon::iter::IntoParallelRefIterator;
+                        use rayon::iter::IntoParallelRefMutIterator;
+                        use rayon::iter::ParallelIterator;
+
+                        let out_shape = WhereNode::<f32>::broadcast_shape(&[
+                            cond.shape(),
+                            x_arr.shape(),
+                            y_arr.shape(),
+                        ])?;
+
+                        if out_arr.shape() != out_shape.as_slice() {
+                            anyhow::bail!("Output shape mismatch");
+                        }
+
+                        let no_broadcast =
+                            cond.shape() == out_shape.as_slice()
+                            && x_arr.shape() == out_shape.as_slice()
+                            && y_arr.shape() == out_shape.as_slice();
+
+                        if no_broadcast {
+                            let out_slice = out_arr.as_slice_memory_order_mut().unwrap();
+                            let c_slice = cond.as_slice_memory_order().unwrap();
+                            let x_slice = x_arr.as_slice_memory_order().unwrap();
+                            let y_slice = y_arr.as_slice_memory_order().unwrap();
+
+                            out_slice
+                                .par_iter_mut()
+                                .zip(c_slice.par_iter())
+                                .zip(x_slice.par_iter())
+                                .zip(y_slice.par_iter())
+                                .for_each(|(((o, c), xv), yv)| {
+                                    *o = if *c { *xv } else { *yv };
+                                });
+                        } else {
+                            let cond_b = cond.broadcast(IxDyn(&out_shape)).unwrap();
+                            let x_b = x_arr.broadcast(IxDyn(&out_shape)).unwrap();
+                            let y_b = y_arr.broadcast(IxDyn(&out_shape)).unwrap();
+
+                            ndarray::Zip::from(out_arr)
+                                .and(&cond_b)
+                                .and(&x_b)
+                                .and(&y_b)
+                                .par_for_each(|o, c, xv, yv| {
+                                    *o = if *c { *xv } else { *yv };
+                                });
+                        }
+
+                        Ok(())
+                    }
+
+                    _ => anyhow::bail!("Where: type mismatch"),
+                }
+            };
+        }
+
+        where_typed!(
+            (Float, f32),
+            (Double, f64),
+            (Int8, i8),
+            (Int16, i16),
+            (Int32, i32),
+            (Int64, i64),
+            (Uint8, u8),
+            (Uint16, u16),
+            (Uint32, u32),
+            (Uint64, u64)
+        )
+    }
+}

@@ -1,9 +1,7 @@
 use std::{any::Any, collections::HashMap};
 
 use crate::{
-    nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
-    tensor_map::TensorMap,
-    typed_array::TypedArray,
+    fill_from_elem, nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId}, tensor_map::TensorMap, typed_array::TypedArray
 };
 use anyhow::Result;
 use ndarray::{ArrayD, IxDyn};
@@ -166,5 +164,35 @@ impl<T: Default + 'static> Node<T> for ConstantOfShapeNode<T> {
                 next.determine_output_shape(omap);
             }
         }
+    }
+}
+
+impl TypedArray {
+    pub fn constant_of_shape(&self, value: &TypedArray, o: &mut TypedArray) -> anyhow::Result<()> {
+        let shape: Vec<usize> = match &self {
+            TypedArray::Int64(s) => s.iter().map(|&v| v as usize).collect(),
+            _ => anyhow::bail!("ConstantOfShape: input shape must be I64"),
+        };
+
+        fill_from_elem!(
+            value,
+            &shape,
+            o,
+            [
+                (Float, f32),
+                (Double, f64),
+                (Int8, i8),
+                (Int16, i16),
+                (Int32, i32),
+                (Int64, i64),
+                (Uint8, u8),
+                (Uint16, u16),
+                (Uint32, u32),
+                (Uint64, u64),
+                (Bool, bool)
+            ]
+        );
+
+        Ok(())
     }
 }

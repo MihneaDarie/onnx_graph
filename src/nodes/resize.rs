@@ -6,7 +6,9 @@ use crate::{
     typed_array::TypedArray,
 };
 use anyhow::{Ok, Result};
+use ndarray::Ix4;
 use onnx_extractor::{AttributeValue, OnnxOperation};
+use rayon::{iter::{IndexedParallelIterator, ParallelIterator}, slice::ParallelSliceMut};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Mode {
@@ -346,6 +348,132 @@ impl<T: Default + 'static> Node<T> for ResizeNode<T> {
             for next in list {
                 next.determine_output_shape(omap);
             }
+        }
+    }
+}
+
+impl TypedArray {
+    pub fn resize(
+        &self,
+        sizes: Option<&TypedArray>,
+        scales: Option<&TypedArray>,
+        mode: &Mode,
+        o: &mut TypedArray,
+    ) -> anyhow::Result<()> {
+        match self {
+            TypedArray::Float(x) => {
+                let x4 = x.view().into_dimensionality::<Ix4>()?;
+                let (_, _, hin, win) = x4.dim();
+                let in_sl = x4.as_slice_memory_order().unwrap();
+
+                let (hout, wout) = match (sizes, scales) {
+                    (Some(TypedArray::Int64(s)), _) => {
+                        (s[s.len() - 2] as usize, s[s.len() - 1] as usize)
+                    }
+                    (_, Some(TypedArray::Float(s))) => {
+                        let sh = s[s.len() - 2];
+                        let sw = s[s.len() - 1];
+                        ((hin as f32 * sh) as usize, (win as f32 * sw) as usize)
+                    }
+                    _ => return Err(anyhow::anyhow!("resize requires either sizes or scales")),
+                };
+
+                let out = match o {
+                    TypedArray::Float(arr) => arr,
+                    _ => unreachable!(),
+                };
+                let out_sl = out.as_slice_memory_order_mut().unwrap();
+
+                let hw_in = hin * win;
+                let hw_out = hout * wout;
+
+                match mode {
+                    Mode::Nearest => {
+                        let rh = hin as f32 / hout as f32;
+                        let rw = win as f32 / wout as f32;
+
+                        let map_h: Vec<usize> = (0..hout)
+                            .map(|oh| ((oh as f32 * rh) as usize).min(hin - 1))
+                            .collect();
+                        let map_w: Vec<usize> = (0..wout)
+                            .map(|ow| ((ow as f32 * rw) as usize).min(win - 1))
+                            .collect();
+
+                        out_sl
+                            .par_chunks_mut(hw_out)
+                            .enumerate()
+                            .for_each(|(ch, out_ch)| {
+                                let in_ch = &in_sl[ch * hw_in..ch * hw_in + hw_in];
+                                for oh in 0..hout {
+                                    let ih = map_h[oh];
+                                    let out_row = &mut out_ch[oh * wout..(oh + 1) * wout];
+                                    let in_row_off = ih * win;
+                                    for (ow, val) in map_w.iter().enumerate().take(wout) {
+                                        unsafe {
+                                            *out_row.get_unchecked_mut(ow) =
+                                                *in_ch.get_unchecked(in_row_off + val);
+                                        }
+                                    }
+                                }
+                            });
+                    }
+                    Mode::Linear => {
+                        let rh_scale = (hin as f32 - 1.0) / (hout as f32 - 1.0).max(1.0);
+                        let rw_scale = (win as f32 - 1.0) / (wout as f32 - 1.0).max(1.0);
+
+                        let h_params: Vec<(usize, usize, f32)> = (0..hout)
+                            .map(|oh| {
+                                let ih = oh as f32 * rh_scale;
+                                let ih0 = (ih as usize).min(hin - 1);
+                                let ih1 = (ih0 + 1).min(hin - 1);
+                                (ih0, ih1, ih - ih0 as f32)
+                            })
+                            .collect();
+                        let w_params: Vec<(usize, usize, f32)> = (0..wout)
+                            .map(|ow| {
+                                let iw = ow as f32 * rw_scale;
+                                let iw0 = (iw as usize).min(win - 1);
+                                let iw1 = (iw0 + 1).min(win - 1);
+                                (iw0, iw1, iw - iw0 as f32)
+                            })
+                            .collect();
+
+                        out_sl
+                            .par_chunks_mut(hw_out)
+                            .enumerate()
+                            .for_each(|(ch, out_ch)| {
+                                let in_ch = &in_sl[ch * hw_in..ch * hw_in + hw_in];
+                                for oh in 0..hout {
+                                    let (ih0, ih1, dh) = h_params[oh];
+                                    let out_row = &mut out_ch[oh * wout..(oh + 1) * wout];
+                                    let r0 = ih0 * win;
+                                    let r1 = ih1 * win;
+                                    for (ow, (iw0, iw1, dw)) in
+                                        w_params.iter().enumerate().take(wout)
+                                    {
+                                        unsafe {
+                                            let v00 = *in_ch.get_unchecked(r0 + iw0);
+                                            let v01 = *in_ch.get_unchecked(r0 + iw1);
+                                            let v10 = *in_ch.get_unchecked(r1 + iw0);
+                                            let v11 = *in_ch.get_unchecked(r1 + iw1);
+                                            *out_row.get_unchecked_mut(ow) =
+                                                v00 * (1.0 - dh) * (1.0 - dw)
+                                                    + v01 * (1.0 - dh) * dw
+                                                    + v10 * dh * (1.0 - dw)
+                                                    + v11 * dh * dw;
+                                        }
+                                    }
+                                }
+                            });
+                    }
+                    Mode::Cubic => {
+                        return Err(anyhow::anyhow!("cubic resize not yet implemented"));
+                    }
+                }
+
+                Ok(())
+            }
+            _ => Err(anyhow::anyhow!("resize only supported for F32")),
         }
     }
 }

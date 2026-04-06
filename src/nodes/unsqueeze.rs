@@ -165,3 +165,75 @@ impl<T: Default + 'static> Node<T> for UnsquezeeNode<T> {
         }
     }
 }
+
+impl TypedArray {
+    pub fn unsqueeze(&self, axes: &TypedArray, o: &mut TypedArray) -> anyhow::Result<()> {
+        let axes_vec: Vec<i64> = match axes {
+            TypedArray::Int64(a) => a.iter().copied().collect(),
+            _ => anyhow::bail!("Unsqueeze: axes must be I64"),
+        };
+
+        let in_shape = self
+            .shape()
+            .ok_or_else(|| anyhow::anyhow!("Unsqueeze: undefined input"))?;
+        let output_rank = in_shape.len() + axes_vec.len();
+
+        let mut norm_axes: Vec<usize> = axes_vec
+            .iter()
+            .map(|&a| {
+                if a < 0 {
+                    (output_rank as i64 + a) as usize
+                } else {
+                    a as usize
+                }
+            })
+            .collect();
+        norm_axes.sort();
+
+        let mut out_shape: Vec<usize> = in_shape.to_vec();
+        for &axis in norm_axes.iter() {
+            out_shape.insert(axis, 1);
+        }
+
+        macro_rules! unsqueeze_variant {
+            ($variant:ident, $a:expr) => {{
+                use ndarray::ArrayD;
+                use ndarray::IxDyn;
+
+                let src = $a.as_slice_memory_order().unwrap();
+                let needs_realloc = match &*o {
+                    TypedArray::$variant(out) => out.shape() != out_shape.as_slice(),
+                    _ => true,
+                };
+                if needs_realloc {
+                    *o = TypedArray::$variant(ArrayD::from_shape_vec(
+                        IxDyn(&out_shape),
+                        src.to_vec(),
+                    )?);
+                } else {
+                    if let TypedArray::$variant(out) = o {
+                        let dst = out.as_slice_memory_order_mut().unwrap();
+                        dst.copy_from_slice(src);
+                    }
+                }
+            }};
+        }
+
+        match self {
+            TypedArray::Float(a) => unsqueeze_variant!(Float, a),
+            TypedArray::Double(a) => unsqueeze_variant!(Double, a),
+            TypedArray::Int32(a) => unsqueeze_variant!(Int32, a),
+            TypedArray::Int64(a) => unsqueeze_variant!(Int64, a),
+            TypedArray::Uint8(a) => unsqueeze_variant!(Uint8, a),
+            TypedArray::Uint16(a) => unsqueeze_variant!(Uint16, a),
+            TypedArray::Uint32(a) => unsqueeze_variant!(Uint32, a),
+            TypedArray::Uint64(a) => unsqueeze_variant!(Uint64, a),
+            TypedArray::Int8(a) => unsqueeze_variant!(Int8, a),
+            TypedArray::Int16(a) => unsqueeze_variant!(Int16, a),
+            TypedArray::Bool(a) => unsqueeze_variant!(Bool, a),
+            _ => anyhow::bail!("Unsqueeze: unsupported type"),
+        }
+
+        Ok(())
+    }
+}

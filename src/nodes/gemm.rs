@@ -9,7 +9,7 @@ use crate::{
 use anyhow::{Ok, Result};
 use ndarray::{ArrayD, IxDyn};
 use onnx_extractor::{AttributeValue, OnnxOperation};
-use saker_rs::activations::Activation;
+use saker_rs::{activations::Activation, linarg::operations::sgemm_bias_parallel};
 
 #[derive(Default)]
 pub struct GemmNode<T: Default> {
@@ -190,5 +190,105 @@ impl<T: Default + 'static> Node<T> for GemmNode<T> {
                 next.determine_output_shape(omap);
             }
         }
+    }
+}
+
+impl TypedArray {
+    pub fn gemm(
+        a: &TypedArray,
+        b: &TypedArray,
+        c: Option<&TypedArray>,
+        alpha: f32,
+        beta: f32,
+        trans_a: bool,
+        trans_b: bool,
+        o: &mut TypedArray,
+    ) -> anyhow::Result<()> {
+        let a_arr = match a {
+            TypedArray::Float(a) => a,
+            _ => return Err(anyhow::anyhow!("Gemm: A must be F32")),
+        };
+        let b_arr = match b {
+            TypedArray::Float(b) => b,
+            _ => return Err(anyhow::anyhow!("Gemm: B must be F32")),
+        };
+
+        let a_shape = a_arr.shape();
+        let b_shape = b_arr.shape();
+
+        let (m, k) = if trans_a {
+            (a_shape[1], a_shape[0])
+        } else {
+            (a_shape[0], a_shape[1])
+        };
+        let n = if trans_b { b_shape[0] } else { b_shape[1] };
+
+        let expected = [m, n];
+        let needs_alloc = match &*o {
+            TypedArray::Float(out) => out.shape() != expected,
+            _ => true,
+        };
+        if needs_alloc {
+            *o = TypedArray::Float(ArrayD::zeros(IxDyn(&expected)));
+        }
+
+        let out_arr = match o {
+            TypedArray::Float(arr) => arr,
+            _ => unreachable!(),
+        };
+        let out_sl = out_arr.as_slice_memory_order_mut().unwrap();
+        let a_sl = a_arr.as_slice_memory_order().unwrap();
+        let b_sl = b_arr.as_slice_memory_order().unwrap();
+
+        let a_ready: Vec<f32>;
+        let a_ptr = if trans_a {
+            let rows = a_shape[0];
+            let cols = a_shape[1];
+            a_ready = (0..cols)
+                .flat_map(|i| (0..rows).map(move |j| a_sl[j * cols + i]))
+                .collect();
+            &a_ready[..]
+        } else {
+            a_sl
+        };
+
+        let b_ready: Vec<f32>;
+        let b_ptr = if trans_b {
+            let rows = b_shape[0];
+            let cols = b_shape[1];
+            b_ready = (0..cols)
+                .flat_map(|i| (0..rows).map(move |j| b_sl[j * cols + i]))
+                .collect();
+            &b_ready[..]
+        } else {
+            b_sl
+        };
+
+        sgemm_bias_parallel(m, n, k, a_ptr, b_ptr, None, out_sl, Activation::None);
+
+        if alpha != 1.0 {
+            out_sl.iter_mut().for_each(|v| *v *= alpha);
+        }
+
+        if let Some(TypedArray::Float(c_arr)) = c {
+            let c_sl = c_arr.as_slice_memory_order().unwrap();
+            if c_arr.len() == n {
+                for row in 0..m {
+                    let offset = row * n;
+                    for col in 0..n {
+                        out_sl[offset + col] += beta * c_sl[col];
+                    }
+                }
+            } else if c_arr.len() == 1 {
+                let val = beta * c_sl[0];
+                out_sl.iter_mut().for_each(|v| *v += val);
+            } else if c_arr.len() == m * n {
+                for i in 0..m * n {
+                    out_sl[i] += beta * c_sl[i];
+                }
+            }
+        }
+
+        Ok(())
     }
 }

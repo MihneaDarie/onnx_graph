@@ -2,6 +2,13 @@
 macro_rules! impl_typed_singleopfunction_with_the_same_output_type_as_the_output {
     ($name:ident, $method:ident, [$($variant:ident),+], [$($reject:ident),*]) => {
         pub fn $name(&self, o: &mut TypedArray) -> anyhow::Result<()> {
+            use rayon::iter::IndexedParallelIterator;
+            use rayon::iter::IntoParallelRefIterator;
+            use rayon::iter::IntoParallelRefMutIterator;
+            use rayon::iter::ParallelIterator;
+            use ndarray::IxDyn;
+            use ndarray::ArrayD;
+
             match self {
                 $(
                     TypedArray::$variant(a) => {
@@ -40,6 +47,12 @@ macro_rules! impl_typed_singleopfunction_with_the_same_output_type_as_the_output
 macro_rules! impl_typed_singleopfunction_with_boolean_ouput {
     ($name:ident, $method:ident, [$($variant:ident),+], [$($reject:ident),*]) => {
         pub fn $name(&self, o: &mut TypedArray) -> anyhow::Result<()> {
+            use ndarray::ArrayD;
+            use rayon::iter::IndexedParallelIterator;
+            use rayon::iter::IntoParallelRefIterator;
+            use rayon::iter::IntoParallelRefMutIterator;
+            use rayon::iter::ParallelIterator;
+
             match self {
                 $(
                     TypedArray::$variant(a) => {

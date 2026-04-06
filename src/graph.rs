@@ -154,7 +154,9 @@ impl<T: Default + 'static> GraphForm<T> {
             "Where" => Box::new(WhereNode::new(elem)),
             "Unsqueeze" => Box::new(UnsquezeeNode::new(elem)),
 
-            "ConstantOfShape" => Box::new(ConstantOfShapeNode::from_onnx_operation(elem)?),
+            "ConstantOfShape" | "Constant" => Box::new(ConstantOfShapeNode::from_onnx_operation(elem)?),
+            
+            // "Expand" => Box::new(),
 
             "Range" => Box::new(RangeNode::new(elem)),
 

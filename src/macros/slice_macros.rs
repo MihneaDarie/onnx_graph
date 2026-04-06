@@ -1,6 +1,9 @@
 #[macro_export]
 macro_rules! call_slice_for_typed_array {
     ($self:expr, $axes:expr, $starts:expr, $ends:expr, $o:expr, [$($variant:ident),+]) => {
+        use crate::slice_variant;
+        use ndarray::IxDyn;
+
         match $self {
             $(
                 TypedArray::$variant(a) => slice_variant!($variant, $axes, $starts, $ends, a, $o),
