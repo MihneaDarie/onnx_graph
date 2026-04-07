@@ -147,11 +147,13 @@ impl<T: Default + 'static> Node<T> for SigmoidNode<T> {
 
 #[inline(always)]
 pub fn aprox_sigmoid_f32(x: f32) -> f32 {
+    let x = x + f32::EPSILON;
     aprox_silu_f32(x) / x
 }
 
 #[inline(always)]
 pub fn aprox_sigmoid_f64(x: f64) -> f64 {
+    let x = x + f64::EPSILON;
     aprox_silu_f64(x) / x
 }
 

@@ -12,6 +12,10 @@ impl TensorMap {
         Self::default()
     }
 
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
     #[inline]
     pub fn insert(&mut self, key: String, val: TypedArray) {
         self.inner.insert(key, val.ensure_contiguous());
