@@ -3,8 +3,7 @@ use std::fmt::Display;
 
 use crate::nodes::conv::Conv2D;
 use crate::{
-    discriminant_macro, fix_if_not_contignous, from_shape_vec_from_datatype, len_macro,
-    shape_macro, zeros_from_datatype, zeros_from_others_type,
+    discriminant_macro, fix_if_not_contignous, from_shape_vec_from_datatype, len_macro, shape_macro, zeros_from_datatype, zeros_from_discriminants, zeros_from_others_type
 };
 use anyhow::Ok;
 use ndarray::{ArrayD, ArrayView1, IxDyn};
@@ -40,6 +39,23 @@ pub enum TypedArray {
     Double(ArrayD<f64>),
     Uint32(ArrayD<u32>),
     Uint64(ArrayD<u64>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TypedArrayDiscriminants {
+    Undefined,
+    Float,
+    Uint8,
+    Int8,
+    Uint16,
+    Int16,
+    Int32,
+    Int64,
+    String,
+    Bool,
+    Double,
+    Uint32,
+    Uint64,
 }
 
 impl TypedArray {
@@ -341,6 +357,17 @@ impl TypedArray {
     pub fn empty_from_data_type(data_type: DataType, shape: &[usize]) -> Self {
         zeros_from_datatype!(
             data_type,
+            shape,
+            [
+                Float, Uint8, Int8, Uint16, Int16, Int32, Int64, Double, Uint32, Uint64
+            ]
+        )
+        .ensure_contiguous()
+    }
+
+    pub fn empty_from_discriminant(discriminant: TypedArrayDiscriminants, shape: &[usize]) -> Self {
+        zeros_from_discriminants!(
+            discriminant,
             shape,
             [
                 Float, Uint8, Int8, Uint16, Int16, Int32, Int64, Double, Uint32, Uint64

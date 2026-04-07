@@ -64,6 +64,19 @@ macro_rules! zeros_from_datatype {
     };
 }
 
+#[macro_export]
+macro_rules! zeros_from_discriminants {
+    ($data_type:expr, $shape:expr, [$($variant:ident),+]) => {
+        match $data_type {
+            $(
+                TypedArrayDiscriminants::$variant => TypedArray::$variant(ArrayD::zeros($shape)),
+            )+
+            TypedArrayDiscriminants::Bool => TypedArray::Bool(ArrayD::from_elem($shape, false)),
+             _ => TypedArray::Undefined
+        }
+    };
+}
+
 macro_rules! cast_to {
     ($data_type:expr, $src_arr:expr) => {};
 }

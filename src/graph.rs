@@ -15,7 +15,7 @@ use crate::{
         where_op::WhereNode,
     },
     tensor_map::TensorMap,
-    typed_array::TypedArray,
+    typed_array::{TypedArray, TypedArrayDiscriminants},
 };
 use anyhow::Ok;
 use ndarray::{ArrayD, IxDyn};
@@ -24,6 +24,7 @@ use saker_rs::activations::Activation;
 
 #[derive(Default)]
 pub struct GraphForm<T: Default> {
+    inputs: Vec<String>,
     // nodes: Vec<Box<dyn Node<T>>>,
     nodes: Option<Vec<Box<dyn Node<T>>>>,
 }
@@ -64,7 +65,7 @@ impl<T: Default + 'static> GraphForm<T> {
         }
     }
 
-    pub fn load_data_arrays(onnx: &OnnxModel, input_shape: Option<&[i64]>) -> TensorMap {
+    pub fn load_data_arrays(onnx: &OnnxModel) -> TensorMap {
         let mut map = TensorMap::new();
 
         onnx.get_output_tensors().iter().for_each(|tensor| {
@@ -109,33 +110,7 @@ impl<T: Default + 'static> GraphForm<T> {
         });
 
         onnx.get_input_tensors().iter().for_each(|tensor| {
-            println!("{}", tensor.name());
-            let mut shape = tensor.shape().to_owned();
-            println!("{shape:?}");
-            println!("in-{input_shape:?}");
-            if let Some(in_shape) = input_shape {
-                if !in_shape.iter().all(|item| *item > 0) {
-                    panic!("You inserted negative shape values");
-                }
-                shape.iter_mut().zip(in_shape).for_each(|(tensor, input)| {
-                    if *tensor < 0 && *input > 0 {
-                        *tensor = *input;
-                    } else if *tensor != *input {
-                        panic!("different specified shape members !");
-                    }
-                });
-            }
-
-            let binding = shape
-                .iter()
-                .map(|inner| *inner as usize)
-                .collect::<Vec<usize>>();
-            let shape = binding.as_slice();
-            println!("{shape:?}");
-            map.insert(
-                tensor.name().to_string(),
-                TypedArray::Float(ArrayD::zeros(IxDyn(shape))),
-            );
+            map.insert(tensor.name().to_string(), TypedArray::Undefined);
         });
 
         map
@@ -202,14 +177,13 @@ impl<T: Default + 'static> GraphForm<T> {
         Ok(res)
     }
 
-    pub fn from_onnx_file(
-        onnx_file_path: &str,
-        input_shape: Option<&[i64]>,
-    ) -> anyhow::Result<(Self, TensorMap)> {
+    pub fn from_onnx_file(onnx_file_path: &str) -> anyhow::Result<(Self, TensorMap)> {
         let onnx = OnnxModel::load_from_file(onnx_file_path)?;
-        let mut ret = Self::new();
 
-        let mut map = Self::load_data_arrays(&onnx, input_shape);
+        let mut ret = Self::new();
+        ret.inputs = onnx.inputs.clone();
+
+        let mut map = Self::load_data_arrays(&onnx);
 
         // onnx.execution_order()?.into_iter().for_each(|elem| {
         for elem in onnx.execution_order()? {
@@ -222,6 +196,43 @@ impl<T: Default + 'static> GraphForm<T> {
             }
         }
         Ok((ret, map))
+    }
+
+    pub fn set_input(&self, omap: &mut TensorMap, input_name: &str, data: TypedArray) {
+        if !self.inputs.contains(&String::from(input_name)) {
+            println!("No such input called {}", input_name);
+        }
+        match omap.get_mut(input_name) {
+            Some(inner) => {
+                *inner = data;
+            }
+            None => {
+                println!("No such input called {}", input_name);
+            }
+        }
+    }
+
+    pub fn determine_output_shape<const N: usize>(
+        &mut self,
+        omap: &mut TensorMap,
+        inputs_info: [(&str, TypedArrayDiscriminants, &[usize]); N],
+    ) {
+        for (name, discriminant, shape) in inputs_info {
+            if !self.inputs.contains(&String::from(name)) {
+                println!("!!! No such input called {name}");
+            }
+            let inp = omap.get_mut(name);
+            match inp {
+                Some(input) => *input = TypedArray::empty_from_discriminant(discriminant, shape),
+                None => {},
+            }
+        }
+
+        if let Some(start) = &mut self.nodes {
+            for next in start {
+                next.determine_output_shape(omap);
+            }
+        }
     }
 
     pub fn rearange_for_parallel_branches(&mut self) {}
@@ -257,9 +268,19 @@ impl<T: Default + 'static> GraphForm<T> {
         }
     }
 
-    pub fn pass(&self, omap: &mut TensorMap, input: &ArrayD<f32>) {
-        omap.insert("observation".to_string(), TypedArray::Float(input.clone()));
-
+    pub fn pass(&self, omap: &mut TensorMap) {
+        self.inputs.iter().for_each(|input| {
+            let input_array = omap.get(input);
+            match input_array {
+                Some(array) => match array {
+                    TypedArray::Undefined => {
+                        println!("Undefined input tensor: <{input}>, you must call GraphForm::set_input function for this specific input");
+                    }
+                    _ => {}
+                },
+                None => println!("Couldn't find input tensor with name {}", input),
+            }
+        });
         if let Some(nodes) = &self.nodes {
             nodes.iter().for_each(|val| val.pass(omap));
         }
