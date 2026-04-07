@@ -22,7 +22,7 @@ macro_rules! impl_cast_for_typedarray {
                             _ => true,
                         };
                         if needs_alloc {
-                            *o = TypedArray::Bool(ArrayD::from_elem(in_shape,false));
+                            *o = TypedArray::Bool(ArrayD::from_elem(in_shape,false)).ensure_contiguous();
                         }
 
                         if let TypedArray::Bool(out) = o {

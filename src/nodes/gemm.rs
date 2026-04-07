@@ -229,7 +229,7 @@ impl TypedArray {
             _ => true,
         };
         if needs_alloc {
-            *o = TypedArray::Float(ArrayD::zeros(IxDyn(&expected)));
+            *o = TypedArray::Float(ArrayD::zeros(IxDyn(&expected))).ensure_contiguous();
         }
 
         let out_arr = match o {

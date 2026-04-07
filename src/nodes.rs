@@ -35,6 +35,10 @@ pub mod less;
 pub mod less_or_equal;
 
 pub mod is_nan;
+pub mod expand;
+pub mod mat_mul;
+pub mod reduce_mean;
+pub mod equal;
 
 pub mod where_op;
 

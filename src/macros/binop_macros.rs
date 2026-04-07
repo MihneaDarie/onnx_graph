@@ -19,11 +19,11 @@ macro_rules! impl_typed_binop {
                                         .zip(sa.par_iter().zip(sb.par_iter()))
                                         .for_each(|(d, (a, b))| *d = *a $op *b);
                             } else {
-                                *o = TypedArray::$variant(a $op b);
+                                *o = TypedArray::$variant(a $op b).ensure_contiguous();
                             };
 
                         } else {
-                            *o = TypedArray::$variant(a $op b);
+                            *o = TypedArray::$variant(a $op b).ensure_contiguous();
                         }
                     }
                 )+
@@ -62,7 +62,7 @@ macro_rules! impl_typed_binop_with_boolean_output {
                                     ndarray::Zip::from(a)
                                         .and(b)
                                         .map_collect(|a, b| $op(a, b))
-                                );
+                                ).ensure_contiguous();
                             }
                         } else {
                             return Err(anyhow::anyhow!(

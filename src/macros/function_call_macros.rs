@@ -17,7 +17,7 @@ macro_rules! impl_typed_singleopfunction_with_the_same_output_type_as_the_output
                             _ => true,
                         };
                         if needs_alloc {
-                            *o = TypedArray::$variant(ArrayD::zeros(IxDyn(a.shape())));
+                            *o = TypedArray::$variant(ArrayD::zeros(IxDyn(a.shape()))).ensure_contiguous();
                         }
                         if let TypedArray::$variant(out) = o {
                             let dst = out.as_slice_memory_order_mut().unwrap();
@@ -61,7 +61,7 @@ macro_rules! impl_typed_singleopfunction_with_boolean_ouput {
                             _ => true,
                         };
                         if needs_alloc {
-                            *o = TypedArray::Bool(ArrayD::from_elem(a.shape(), false));
+                            *o = TypedArray::Bool(ArrayD::from_elem(a.shape(), false)).ensure_contiguous();
                         }
                         if let TypedArray::Bool(out) = o {
                             let dst = out.as_slice_memory_order_mut().unwrap();

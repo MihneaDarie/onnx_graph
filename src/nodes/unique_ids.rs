@@ -35,6 +35,7 @@ pub enum UniqueId {
     Cos,
 
     Sqrt,
+    Expand,
 
     IsNan,
 

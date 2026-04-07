@@ -24,6 +24,6 @@ macro_rules! concat_variant {
                 _ => Err(anyhow::anyhow!("type mismatch in concat")),
             })
             .collect();
-        *$o = TypedArray::$variant(ndarray::concatenate(Axis($axis), &inner?)?.into_dyn());
+        *$o = TypedArray::$variant(ndarray::concatenate(Axis($axis), &inner?)?.into_dyn()).ensure_contiguous();
     }};
 }

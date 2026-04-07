@@ -26,6 +26,20 @@ macro_rules! shape_macro {
 }
 
 #[macro_export]
+macro_rules! len_macro {
+    ($array:expr, [$($variant:ident),+]) => {
+        match $array {
+            $(
+                TypedArray::$variant(inner) => Some(inner.len()),
+            )+
+            TypedArray::Undefined => {
+                None
+            }
+        }
+    };
+}
+
+#[macro_export]
 macro_rules! discriminant_macro {
     ($array:expr, [$($variant:ident),+]) => {
         match $array {

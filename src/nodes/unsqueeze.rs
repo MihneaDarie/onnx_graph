@@ -209,7 +209,8 @@ impl TypedArray {
                     *o = TypedArray::$variant(ArrayD::from_shape_vec(
                         IxDyn(&out_shape),
                         src.to_vec(),
-                    )?);
+                    )?)
+                    .ensure_contiguous();
                 } else {
                     if let TypedArray::$variant(out) = o {
                         let dst = out.as_slice_memory_order_mut().unwrap();

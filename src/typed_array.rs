@@ -4,7 +4,8 @@ use std::fmt::Display;
 use crate::nodes::conv::Conv2D;
 use crate::{
     discriminant_macro, fix_if_not_contignous, from_shape_vec_from_datatype,
-    impl_typed_binop_with_boolean_output, shape_macro, zeros_from_datatype, zeros_from_others_type,
+    len_macro, shape_macro, zeros_from_datatype,
+    zeros_from_others_type,
 };
 use anyhow::Ok;
 use ndarray::{ArrayD, ArrayView1, IxDyn};
@@ -55,6 +56,16 @@ impl TypedArray {
 
     pub fn shape(&self) -> Option<&[usize]> {
         shape_macro!(
+            self,
+            [
+                Float, Uint8, Int8, Uint16, Int16, Int32, Int64, String, Bool, Double, Uint32,
+                Uint64
+            ]
+        )
+    }
+
+    pub fn len(&self) -> Option<usize> {
+        len_macro!(
             self,
             [
                 Float, Uint8, Int8, Uint16, Int16, Int32, Int64, String, Bool, Double, Uint32,
@@ -286,22 +297,16 @@ impl TypedArray {
         Ok(())
     }
 
-    impl_typed_binop_with_boolean_output!(
-        equal_op,
-        |a, b| a == b,
-        [
-            Double, Float, Int16, Int32, Int64, Int8, Uint16, Uint32, Uint64, Uint8
-        ]
-    );
-
     pub fn empty_with_others_type(other: &Self, shape: &[usize]) -> Self {
-        zeros_from_others_type!(
+        let array = zeros_from_others_type!(
             other,
             shape,
             [
                 Float, Uint8, Int8, Uint16, Int16, Int32, Int64, Double, Uint32, Uint64
             ]
-        )
+        );
+        let array = array.ensure_contiguous();
+        array
     }
 
     pub fn from_tensor_empty(tensor: &OnnxTensor, shape: &[i64]) -> Self {
@@ -313,7 +318,7 @@ impl TypedArray {
             [
                 Float, Uint8, Int8, Uint16, Int16, Int32, Int64, Double, Uint32, Uint64
             ]
-        )
+        ).ensure_contiguous()
     }
 
     pub fn from_output_tensor(tensor: &&OnnxTensor) -> Self {
@@ -330,7 +335,17 @@ impl TypedArray {
             [
                 Float, Uint8, Int8, Uint16, Int16, Int32, Int64, Double, Uint32, Uint64
             ]
-        )
+        ).ensure_contiguous()
+    }
+
+    pub fn empty_from_data_type(data_type: DataType, shape: &[usize]) -> Self {
+        zeros_from_datatype!(
+            data_type,
+            shape,
+            [
+                Float, Uint8, Int8, Uint16, Int16, Int32, Int64, Double, Uint32, Uint64
+            ]
+        ).ensure_contiguous()
     }
 
     pub fn from_tensor(tensor: &&OnnxTensor) -> Self {
@@ -361,7 +376,7 @@ impl TypedArray {
                 (Uint32, u32),
                 (Uint64, u64)
             ]
-        )
+        ).ensure_contiguous()
     }
 }
 

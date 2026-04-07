@@ -176,7 +176,7 @@ impl TypedArray {
 
                 if needs_alloc {
                     let data: Vec<$T> = (0..n).map(|i| s + (i as $T) * d).collect();
-                    *o = TypedArray::$variant(ArrayD::from_shape_vec(IxDyn(&[n]), data)?);
+                    *o = TypedArray::$variant(ArrayD::from_shape_vec(IxDyn(&[n]), data)?).ensure_contiguous();
                 } else if let TypedArray::$variant(out) = o {
                     let dst = out.as_slice_memory_order_mut().unwrap();
                     for i in 0..n {

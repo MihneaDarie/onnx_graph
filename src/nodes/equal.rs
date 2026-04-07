@@ -1,17 +1,16 @@
-use std::any::Any;
-
-use ndarray::{ArrayD, IxDyn};
-use onnx_extractor::OnnxOperation;
+use std::{any::Any, collections::HashMap};
 
 use crate::{
-    impl_typed_binop,
+    impl_typed_binop_with_boolean_output,
     nodes::{node::Node, unique_ids::UniqueId},
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
+use anyhow::Result;
+use onnx_extractor::OnnxOperation;
 
 #[derive(Default)]
-pub struct AndNode<T: Default> {
+pub struct EqualNode<T: Default> {
     a: String,
     b: String,
 
@@ -22,19 +21,20 @@ pub struct AndNode<T: Default> {
     next_node: Option<Vec<Box<dyn Node<T>>>>,
 }
 
-impl<T: Default> AndNode<T> {
+impl<T: Default> EqualNode<T> {
     pub fn new(elem: &OnnxOperation) -> Self {
-        let mut and = Self {
+        let mut equal = Self {
             a: String::new(),
             b: String::new(),
             o: String::new(),
-            unique_id: UniqueId::And,
+            unique_id: UniqueId::Equal,
             next_node: None,
         };
-        and.add_input_strings(elem.inputs[0].clone(), elem.inputs[1].clone());
-        and.add_output_strings(elem.outputs[0].clone());
-        and
+        equal.add_input_strings(elem.inputs[0].clone(), elem.inputs[1].clone());
+        equal.add_output_strings(elem.outputs[0].clone());
+        equal
     }
+
     pub fn add_input_strings(&mut self, a: String, b: String) {
         self.a = a;
         self.b = b;
@@ -45,7 +45,7 @@ impl<T: Default> AndNode<T> {
     }
 }
 
-impl<T: Default + 'static> Node<T> for AndNode<T> {
+impl<T: Default + 'static> Node<T> for EqualNode<T> {
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
@@ -53,27 +53,8 @@ impl<T: Default + 'static> Node<T> for AndNode<T> {
     fn get_unique_id(&self) -> UniqueId {
         self.unique_id
     }
-    fn take_next(&mut self) -> Option<Vec<Box<dyn Node<T>>>> {
-        self.next_node.take()
-    }
     fn get_unique_id_mut(&mut self) -> UniqueId {
         self.unique_id
-    }
-
-    fn get_next_mut(&mut self) -> Option<&mut Vec<Box<dyn Node<T>>>> {
-        self.next_node.as_mut()
-    }
-
-    fn set_next(&mut self, next: Option<Vec<Box<dyn Node<T>>>>) {
-        self.next_node = next;
-    }
-
-    fn output_names(&self) -> Vec<String> {
-        vec![self.o.clone()]
-    }
-
-    fn input_names(&self) -> Vec<String> {
-        vec![self.a.clone(), self.b.clone()]
     }
 
     fn get_next(&self) -> Option<&Vec<Box<dyn Node<T>>>> {
@@ -86,18 +67,37 @@ impl<T: Default + 'static> Node<T> for AndNode<T> {
         let b = &*b.unwrap();
 
         match o {
-            Some(out) => {
-                a.and_op(b, out).unwrap();
+            Some(result) => {
+                a.equal_op(b, result).unwrap();
             }
-            _ => panic!("AndNode: missing output {}", self.o),
+            None => panic!("EqualNode: missing input {}", self.a),
         }
+    }
+
+    fn output_names(&self) -> Vec<String> {
+        vec![self.o.clone()]
+    }
+
+    fn input_names(&self) -> Vec<String> {
+        vec![self.a.clone()]
+    }
+
+    fn take_next(&mut self) -> Option<Vec<Box<dyn Node<T>>>> {
+        self.next_node.take()
+    }
+    fn get_next_mut(&mut self) -> Option<&mut Vec<Box<dyn Node<T>>>> {
+        self.next_node.as_mut()
+    }
+
+    fn set_next(&mut self, next: Option<Vec<Box<dyn Node<T>>>>) {
+        self.next_node = next;
     }
 
     fn print(&self) {
         if let Some(list) = &self.next_node {
             print!("{}-", list.len());
         }
-        println!("and-{},{},{}", self.a, self.b, self.o);
+        println!("equal-{},{}", self.a, self.o);
         if let Some(next) = &self.next_node {
             next.iter().for_each(|v| v.print());
         }
@@ -117,7 +117,7 @@ impl<T: Default + 'static> Node<T> for AndNode<T> {
         }
     }
 
-    fn insert(&mut self, next: Box<dyn Node<T>>) -> anyhow::Result<()> {
+    fn insert(&mut self, next: Box<dyn Node<T>>) -> Result<()> {
         if let Some(next_node) = &mut self.next_node {
             next_node[0].insert(next)?;
             return Ok(());
@@ -128,13 +128,13 @@ impl<T: Default + 'static> Node<T> for AndNode<T> {
     }
 
     fn determine_output_shape(&mut self, omap: &mut TensorMap) {
-        let [a, o] = omap.get_disjoint_mut([&self.a, &self.o]);
-        let a = a.map(|arr| &*arr);
+        let [x, o] = omap.get_disjoint_mut([&self.a, &self.o]);
+        let x = x.map(|arr| &*arr);
 
-        if let (Some(a), Some(o)) = (a, o)
-            && let Some(in_shape) = a.shape()
+        if let (Some(x), Some(o)) = (x, o)
+            && let Some(in_shape) = x.shape()
         {
-            *o = TypedArray::Bool(ArrayD::default(IxDyn(in_shape))).ensure_contiguous()
+            *o = TypedArray::empty_with_others_type(x, in_shape);
         }
 
         if let Some(list) = &mut self.next_node {
@@ -146,5 +146,11 @@ impl<T: Default + 'static> Node<T> for AndNode<T> {
 }
 
 impl TypedArray {
-    impl_typed_binop!(and_op, &, [Bool]);
+    impl_typed_binop_with_boolean_output!(
+        equal_op,
+        |a, b| a == b,
+        [
+            Double, Float, Int16, Int32, Int64, Int8, Uint16, Uint32, Uint64, Uint8
+        ]
+    );
 }
