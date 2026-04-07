@@ -2,7 +2,7 @@
 macro_rules! call_concat_for_typed_array {
     ($first:expr, $arrays:expr, $axis:expr, $o:expr, [$($variant:ident),+]) => {
         use crate::concat_variant;
-        use ndarray::Axis;      
+        use ndarray::Axis;
 
         match $first {
             $(
@@ -24,6 +24,7 @@ macro_rules! concat_variant {
                 _ => Err(anyhow::anyhow!("type mismatch in concat")),
             })
             .collect();
-        *$o = TypedArray::$variant(ndarray::concatenate(Axis($axis), &inner?)?.into_dyn()).ensure_contiguous();
+        *$o = TypedArray::$variant(ndarray::concatenate(Axis($axis), &inner?)?.into_dyn())
+            .ensure_contiguous();
     }};
 }

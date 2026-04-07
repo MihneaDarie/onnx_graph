@@ -112,12 +112,14 @@ impl<T: Default + 'static> Node<T> for ReduceMeanNode<T> {
 
     fn execute(&self, omap: &mut TensorMap) {
         let axes = &self.axes.clone().unwrap_or_default();
-        let [data, axes, o] = omap.get_disjoint_mut([&self.data, &axes, &self.o]);
+        let [data, axes, o] = omap.get_disjoint_mut([&self.data, axes, &self.o]);
         let data = data.map(|inner| &*inner);
         let axes = axes.map(|inner| &*inner);
 
-        match o {
-            Some(result) => {}
+        match (data, self.keepdims, self.noop_with_empty_axes, o) {
+            (Some(data), Some(keepdims), Some(noop), Some(result)) => data
+                .reduce_mean(axes, keepdims != 0, noop != 0, result)
+                .unwrap(),
             _ => panic!("ReduceMeanNode: missing output {}", self.o),
         }
     }
@@ -158,7 +160,7 @@ impl<T: Default + 'static> Node<T> for ReduceMeanNode<T> {
 
     fn determine_output_shape(&mut self, omap: &mut TensorMap) {
         let axes = &self.axes.clone().unwrap_or_default();
-        let [data, axes, o] = omap.get_disjoint_mut([&self.data, &axes, &self.o]);
+        let [data, axes, o] = omap.get_disjoint_mut([&self.data, axes, &self.o]);
         let data = data.map(|inner| &*inner);
         let axes = axes.map(|inner| &*inner);
 
@@ -171,7 +173,7 @@ impl<T: Default + 'static> Node<T> for ReduceMeanNode<T> {
                 let ndim = in_shape.len();
 
                 let axes_vec: Vec<usize> = match axes {
-                    Some(TypedArray::Int64(ax)) if ax.len() > 0 => ax
+                    Some(TypedArray::Int64(ax)) if !ax.is_empty() => ax
                         .iter()
                         .map(|&a| {
                             if a < 0 {
@@ -192,7 +194,7 @@ impl<T: Default + 'static> Node<T> for ReduceMeanNode<T> {
                 };
 
                 let mut out_shape: Vec<usize> = Vec::new();
-                for i in 0..ndim {
+                for (i, val) in in_shape.iter().enumerate().take(ndim) {
                     if axes_vec.contains(&i) {
                         if let Some(keepdims) = self.keepdims
                             && keepdims != 0
@@ -200,7 +202,7 @@ impl<T: Default + 'static> Node<T> for ReduceMeanNode<T> {
                             out_shape.push(1);
                         }
                     } else {
-                        out_shape.push(in_shape[i]);
+                        out_shape.push(*val);
                     }
                 }
                 if out_shape.is_empty() {
@@ -257,7 +259,8 @@ impl TypedArray {
                                 _ => true,
                             };
                             if needs_alloc {
-                                *o = TypedArray::$variant(ArrayD::zeros(IxDyn(in_shape))).ensure_contiguous();
+                                *o = TypedArray::$variant(ArrayD::zeros(IxDyn(in_shape)))
+                                    .ensure_contiguous();
                             }
                             if let TypedArray::$variant(out) = o {
                                 let dst = out.as_slice_memory_order_mut().unwrap();

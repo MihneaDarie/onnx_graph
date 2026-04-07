@@ -34,7 +34,7 @@ impl<T: Default> UnsquezeeNode<T> {
         unsqueeze
     }
 
-    pub fn add_input_strings(&mut self, inputs: &Vec<String>) {
+    pub fn add_input_strings(&mut self, inputs: &[String]) {
         self.data = inputs[0].clone();
         self.axes = inputs[1].clone();
     }

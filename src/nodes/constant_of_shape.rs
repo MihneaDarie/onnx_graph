@@ -1,7 +1,10 @@
 use std::{any::Any, collections::HashMap};
 
 use crate::{
-    fill_from_elem, nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId}, tensor_map::TensorMap, typed_array::TypedArray
+    fill_from_elem,
+    nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
+    tensor_map::TensorMap,
+    typed_array::TypedArray,
 };
 use anyhow::Result;
 use ndarray::{ArrayD, IxDyn};
@@ -34,8 +37,7 @@ impl<T: Default> FromOnnxOperation for ConstantOfShapeNode<T> {
             .attributes
             .get("value")
             .and_then(|val| AttributeValue::as_tensor(val))
-            .and_then(|tensor| Some(TypedArray::from_tensor(&tensor)))
-            .or_else(|| Some(TypedArray::Float(ArrayD::zeros(IxDyn(&[1])))));
+            .map(|tensor| TypedArray::from_tensor(&tensor));
         constant_of_shape.value = value;
 
         constant_of_shape.add_input_strings(elem.inputs[0].clone());

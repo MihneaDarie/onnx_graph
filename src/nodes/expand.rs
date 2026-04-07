@@ -153,13 +153,7 @@ impl<T: Default + 'static> Node<T> for ExpandNode<T> {
                     target_shape[i - (out_rank - target_shape.len())]
                 };
 
-                out_shape[i] = if in_dim == 1 {
-                    target_dim
-                } else if target_dim == 1 {
-                    in_dim
-                } else {
-                    in_dim
-                };
+                out_shape[i] = if in_dim == 1 { target_dim } else { in_dim };
             }
 
             *o = TypedArray::empty_with_others_type(input, &out_shape);

@@ -3,9 +3,8 @@ use std::fmt::Display;
 
 use crate::nodes::conv::Conv2D;
 use crate::{
-    discriminant_macro, fix_if_not_contignous, from_shape_vec_from_datatype,
-    len_macro, shape_macro, zeros_from_datatype,
-    zeros_from_others_type,
+    discriminant_macro, fix_if_not_contignous, from_shape_vec_from_datatype, len_macro,
+    shape_macro, zeros_from_datatype, zeros_from_others_type,
 };
 use anyhow::Ok;
 use ndarray::{ArrayD, ArrayView1, IxDyn};
@@ -298,15 +297,14 @@ impl TypedArray {
     }
 
     pub fn empty_with_others_type(other: &Self, shape: &[usize]) -> Self {
-        let array = zeros_from_others_type!(
+        zeros_from_others_type!(
             other,
             shape,
             [
                 Float, Uint8, Int8, Uint16, Int16, Int32, Int64, Double, Uint32, Uint64
             ]
-        );
-        let array = array.ensure_contiguous();
-        array
+        )
+        .ensure_contiguous()
     }
 
     pub fn from_tensor_empty(tensor: &OnnxTensor, shape: &[i64]) -> Self {
@@ -318,7 +316,8 @@ impl TypedArray {
             [
                 Float, Uint8, Int8, Uint16, Int16, Int32, Int64, Double, Uint32, Uint64
             ]
-        ).ensure_contiguous()
+        )
+        .ensure_contiguous()
     }
 
     pub fn from_output_tensor(tensor: &&OnnxTensor) -> Self {
@@ -335,7 +334,8 @@ impl TypedArray {
             [
                 Float, Uint8, Int8, Uint16, Int16, Int32, Int64, Double, Uint32, Uint64
             ]
-        ).ensure_contiguous()
+        )
+        .ensure_contiguous()
     }
 
     pub fn empty_from_data_type(data_type: DataType, shape: &[usize]) -> Self {
@@ -345,7 +345,8 @@ impl TypedArray {
             [
                 Float, Uint8, Int8, Uint16, Int16, Int32, Int64, Double, Uint32, Uint64
             ]
-        ).ensure_contiguous()
+        )
+        .ensure_contiguous()
     }
 
     pub fn from_tensor(tensor: &&OnnxTensor) -> Self {
@@ -376,7 +377,8 @@ impl TypedArray {
                 (Uint32, u32),
                 (Uint64, u64)
             ]
-        ).ensure_contiguous()
+        )
+        .ensure_contiguous()
     }
 }
 

@@ -55,7 +55,7 @@ impl<T: Default> WhereNode<T> {
         Ok(result)
     }
 
-    pub fn add_input_strings(&mut self, inputs: &Vec<String>) {
+    pub fn add_input_strings(&mut self, inputs: &[String]) {
         self.c = inputs[0].clone();
         self.x = inputs[1].clone();
         self.y = inputs[2].clone();

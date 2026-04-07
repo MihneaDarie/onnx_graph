@@ -8,7 +8,10 @@ use crate::{
 use anyhow::{Ok, Result};
 use ndarray::Ix4;
 use onnx_extractor::{AttributeValue, OnnxOperation};
-use rayon::{iter::{IndexedParallelIterator, ParallelIterator}, slice::ParallelSliceMut};
+use rayon::{
+    iter::{IndexedParallelIterator, ParallelIterator},
+    slice::ParallelSliceMut,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Mode {

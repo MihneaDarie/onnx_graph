@@ -139,52 +139,48 @@ impl<T: Default + 'static> Node<T> for MatMulNode<T> {
         let a = a.map(|inner| &*inner);
         let b = b.map(|inner| &*inner);
         if let (Some(a), Some(b)) = (a, b) {
-            let out_shape = {
-                let a_shape = match a.shape() {
-                    Some(s) => s.to_vec(),
-                    None => return,
-                };
-                let b_shape = match b.shape() {
-                    Some(s) => s.to_vec(),
-                    None => return,
-                };
-                let a_ndim = a_shape.len();
-                let b_ndim = b_shape.len();
+            let a_shape = match a.shape() {
+                Some(s) => s.to_vec(),
+                None => return,
+            };
+            let b_shape = match b.shape() {
+                Some(s) => s.to_vec(),
+                None => return,
+            };
+            let a_ndim = a_shape.len();
+            let b_ndim = b_shape.len();
 
-                let out_shape = match (a_ndim, b_ndim) {
-                    (1, 1) => vec![1],
-                    (2, 1) => vec![a_shape[0]],
-                    (1, 2) => vec![b_shape[1]],
-                    (2, 2) => vec![a_shape[0], b_shape[1]],
-                    _ => {
-                        let m = a_shape[a_ndim - 2];
-                        let n = b_shape[b_ndim - 1];
-                        let a_batch = &a_shape[..a_ndim - 2];
-                        let b_batch = &b_shape[..b_ndim - 2];
-                        let batch_rank = a_batch.len().max(b_batch.len());
+            let out_shape = match (a_ndim, b_ndim) {
+                (1, 1) => vec![1],
+                (2, 1) => vec![a_shape[0]],
+                (1, 2) => vec![b_shape[1]],
+                (2, 2) => vec![a_shape[0], b_shape[1]],
+                _ => {
+                    let m = a_shape[a_ndim - 2];
+                    let n = b_shape[b_ndim - 1];
+                    let a_batch = &a_shape[..a_ndim - 2];
+                    let b_batch = &b_shape[..b_ndim - 2];
+                    let batch_rank = a_batch.len().max(b_batch.len());
 
-                        let mut batch_shape = vec![0usize; batch_rank];
-                        for i in 0..batch_rank {
-                            let a_dim = if i < batch_rank - a_batch.len() {
-                                1
-                            } else {
-                                a_batch[i - (batch_rank - a_batch.len())]
-                            };
-                            let b_dim = if i < batch_rank - b_batch.len() {
-                                1
-                            } else {
-                                b_batch[i - (batch_rank - b_batch.len())]
-                            };
-                            batch_shape[i] = a_dim.max(b_dim);
-                        }
-                        let mut shape = batch_shape;
-                        shape.push(m);
-                        shape.push(n);
-                        shape
+                    let mut batch_shape = vec![0usize; batch_rank];
+                    for i in 0..batch_rank {
+                        let a_dim = if i < batch_rank - a_batch.len() {
+                            1
+                        } else {
+                            a_batch[i - (batch_rank - a_batch.len())]
+                        };
+                        let b_dim = if i < batch_rank - b_batch.len() {
+                            1
+                        } else {
+                            b_batch[i - (batch_rank - b_batch.len())]
+                        };
+                        batch_shape[i] = a_dim.max(b_dim);
                     }
-                };
-
-                out_shape
+                    let mut shape = batch_shape;
+                    shape.push(m);
+                    shape.push(n);
+                    shape
+                }
             };
 
             if let Some(o) = o {
@@ -214,7 +210,7 @@ impl TypedArray {
                         let k = a_shape[0];
                         assert_eq!(k, b_shape[0]);
                         let needs_alloc = match &*o {
-                            TypedArray::Float(out) => out.shape() != &[1],
+                            TypedArray::Float(out) => out.shape() != [1],
                             _ => true,
                         };
                         if needs_alloc {

@@ -36,7 +36,7 @@ impl<T: Default> RangeNode<T> {
         range
     }
 
-    pub fn add_input_strings(&mut self, inputs: &Vec<String>) {
+    pub fn add_input_strings(&mut self, inputs: &[String]) {
         self.start = inputs[0].clone();
         self.limit = inputs[1].clone();
         self.delta = inputs[2].clone();
@@ -176,7 +176,8 @@ impl TypedArray {
 
                 if needs_alloc {
                     let data: Vec<$T> = (0..n).map(|i| s + (i as $T) * d).collect();
-                    *o = TypedArray::$variant(ArrayD::from_shape_vec(IxDyn(&[n]), data)?).ensure_contiguous();
+                    *o = TypedArray::$variant(ArrayD::from_shape_vec(IxDyn(&[n]), data)?)
+                        .ensure_contiguous();
                 } else if let TypedArray::$variant(out) = o {
                     let dst = out.as_slice_memory_order_mut().unwrap();
                     for i in 0..n {

@@ -2,7 +2,17 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{
     nodes::{
-        add::AddNode, and::AndNode, argmax::ArgMaxNode, concat::ConcatNode, constant_of_shape::ConstantOfShapeNode, conv::ConvNode, cos::CosNode, div::DivNode, expand::ExpandNode, flatten::FlattenNode, gather::GatherNode, gemm::GemmNode, greater::GreaterNode, greater_or_equal::GreaterOrEqualNode, is_nan::IsNanNode, less::LessNode, less_or_equal::LessOrEqualNode, max_pool::MaxPoolNode, mul::MulNode, neg::NegNode, node::Node, onnx_operation_trait::FromOnnxOperation, pow::PowNode, range::RangeNode, relu::ReluNode, reshape::ReshapeNode, resize::ResizeNode, shape::ShapeNode, sigmoid::SigmoidNode, sin::SinNode, slice::SliceNode, soft_max::SoftMaxNode, split::SplitNode, sqrt::SqrtNode, sub::SubNode, transpose::TransposeNode, unique_ids::UniqueId, unsqueeze::UnsquezeeNode, where_op::WhereNode
+        add::AddNode, and::AndNode, argmax::ArgMaxNode, concat::ConcatNode,
+        constant_of_shape::ConstantOfShapeNode, conv::ConvNode, cos::CosNode, div::DivNode,
+        expand::ExpandNode, flatten::FlattenNode, gather::GatherNode, gemm::GemmNode,
+        greater::GreaterNode, greater_or_equal::GreaterOrEqualNode, is_nan::IsNanNode,
+        less::LessNode, less_or_equal::LessOrEqualNode, max_pool::MaxPoolNode, mul::MulNode,
+        neg::NegNode, node::Node, onnx_operation_trait::FromOnnxOperation, pow::PowNode,
+        range::RangeNode, relu::ReluNode, reshape::ReshapeNode, resize::ResizeNode,
+        shape::ShapeNode, sigmoid::SigmoidNode, sin::SinNode, slice::SliceNode,
+        soft_max::SoftMaxNode, split::SplitNode, sqrt::SqrtNode, sub::SubNode,
+        transpose::TransposeNode, unique_ids::UniqueId, unsqueeze::UnsquezeeNode,
+        where_op::WhereNode,
     },
     tensor_map::TensorMap,
     typed_array::TypedArray,
@@ -145,8 +155,10 @@ impl<T: Default + 'static> GraphForm<T> {
             "Where" => Box::new(WhereNode::new(elem)),
             "Unsqueeze" => Box::new(UnsquezeeNode::new(elem)),
 
-            "ConstantOfShape" | "Constant" => Box::new(ConstantOfShapeNode::from_onnx_operation(elem)?),
-            
+            "ConstantOfShape" | "Constant" => {
+                Box::new(ConstantOfShapeNode::from_onnx_operation(elem)?)
+            }
+
             "Expand" => Box::new(ExpandNode::new(elem)),
 
             "Range" => Box::new(RangeNode::new(elem)),
