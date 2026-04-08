@@ -219,7 +219,7 @@ impl<T: Default + 'static> GraphForm<T> {
     ) {
         for (name, discriminant, shape) in inputs_info {
             if !self.inputs.contains(&String::from(name)) {
-                println!("!!! No such input called {name}");
+                println!("!!! No such input called {name} !!!");
             }
             let inp = omap.get_mut(name);
             match inp {
