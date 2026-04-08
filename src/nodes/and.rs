@@ -117,15 +117,7 @@ impl<T: Default + 'static> Node<T> for AndNode<T> {
         }
     }
 
-    fn insert(&mut self, next: Box<dyn Node<T>>) -> anyhow::Result<()> {
-        if let Some(next_node) = &mut self.next_node {
-            next_node[0].insert(next)?;
-            return Ok(());
-        } else {
-            self.next_node = Some(vec![next])
-        }
-        Ok(())
-    }
+    
 
     fn determine_output_shape(&mut self, omap: &mut TensorMap) {
         let [a, o] = omap.get_disjoint_mut([&self.a, &self.o]);

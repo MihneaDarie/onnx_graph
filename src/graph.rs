@@ -2,16 +2,48 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{
     nodes::{
-        add::AddNode, and::AndNode, argmax::ArgMaxNode, concat::ConcatNode,
-        constant_of_shape::ConstantOfShapeNode, conv::ConvNode, cos::CosNode, div::DivNode,
-        expand::ExpandNode, flatten::FlattenNode, gather::GatherNode, gemm::GemmNode,
-        greater::GreaterNode, greater_or_equal::GreaterOrEqualNode, is_nan::IsNanNode,
-        less::LessNode, less_or_equal::LessOrEqualNode, max_pool::MaxPoolNode, mul::MulNode,
-        neg::NegNode, node::Node, onnx_operation_trait::FromOnnxOperation, pow::PowNode,
-        range::RangeNode, relu::ReluNode, reshape::ReshapeNode, resize::ResizeNode,
-        shape::ShapeNode, sigmoid::SigmoidNode, sin::SinNode, slice::SliceNode,
-        soft_max::SoftMaxNode, split::SplitNode, sqrt::SqrtNode, sub::SubNode,
-        transpose::TransposeNode, unique_ids::UniqueId, unsqueeze::UnsquezeeNode,
+        add::AddNode,
+        and::AndNode,
+        argmax::ArgMaxNode,
+        cast::CastNode,
+        concat::ConcatNode,
+        constant_of_shape::ConstantOfShapeNode,
+        conv::ConvNode,
+        cos::CosNode,
+        div::DivNode,
+        equal::EqualNode,
+        expand::ExpandNode,
+        flatten::FlattenNode,
+        gather::GatherNode,
+        gemm::GemmNode,
+        greater::GreaterNode,
+        greater_or_equal::GreaterOrEqualNode,
+        is_nan::IsNanNode,
+        less::LessNode,
+        less_or_equal::LessOrEqualNode,
+        mat_mul::MatMulNode,
+        max_pool::MaxPoolNode,
+        mul::MulNode,
+        neg::NegNode,
+        node::{Node, insert_node, pass_node},
+        onnx_operation_trait::FromOnnxOperation,
+        pow::PowNode,
+        range::RangeNode,
+        reduce_mean::ReduceMeanNode,
+        relu::ReluNode,
+        reshape::ReshapeNode,
+        resize::ResizeNode,
+        shape::ShapeNode,
+        sigmoid::SigmoidNode,
+        sin::SinNode,
+        slice::SliceNode,
+        soft_max::SoftMaxNode,
+        split::SplitNode,
+        sqrt::SqrtNode,
+        sub::SubNode,
+        transpose::TransposeNode,
+        unique_ids::UniqueId,
+        unsqueeze::UnsquezeeNode,
         where_op::WhereNode,
     },
     tensor_map::TensorMap,
@@ -36,9 +68,9 @@ impl<T: Default + 'static> GraphForm<T> {
 
     pub fn insert(&mut self, node: Box<dyn Node<T>>) {
         if let Some(next) = &mut self.nodes {
-            next[0].insert(node).unwrap();
+            insert_node(next[0].as_mut(), node).unwrap();
         } else {
-            self.nodes = Some(vec![node])
+            self.nodes = Some(vec![node]);
         }
     }
 
@@ -116,7 +148,10 @@ impl<T: Default + 'static> GraphForm<T> {
         map
     }
 
-    fn get_specifc_node_from_operation(elem: &OnnxOperation) -> anyhow::Result<Box<dyn Node<T>>> {
+    fn get_specifc_node_from_operation(
+        elem: &OnnxOperation,
+        omap: &mut TensorMap,
+    ) -> anyhow::Result<Box<dyn Node<T>>> {
         let res: Box<dyn Node<T>> = match elem.op_type.as_str() {
             "Concat" => Box::new(ConcatNode::from_onnx_operation(elem)?),
             "Gather" => Box::new(GatherNode::from_onnx_operation(elem)?),
@@ -133,6 +168,11 @@ impl<T: Default + 'static> GraphForm<T> {
             "ConstantOfShape" | "Constant" => {
                 Box::new(ConstantOfShapeNode::from_onnx_operation(elem)?)
             }
+
+            "ReduceMean" => Box::new(ReduceMeanNode::from_onnx_operation(elem)?),
+
+            "Cast" => Box::new(CastNode::from_onnx_operation(elem)?),
+            "MatMul" => Box::new(MatMulNode::from_onnx_operation(elem)?),
 
             "Expand" => Box::new(ExpandNode::new(elem)),
 
@@ -155,6 +195,7 @@ impl<T: Default + 'static> GraphForm<T> {
             "Less" => Box::new(LessNode::new(elem)),
             "GreaterOrEqual" => Box::new(GreaterOrEqualNode::new(elem)),
             "Greater" => Box::new(GreaterNode::new(elem)),
+            "Equal" => Box::new(EqualNode::new(elem)),
 
             "Sqrt" => Box::new(SqrtNode::new(elem)),
 
@@ -187,7 +228,7 @@ impl<T: Default + 'static> GraphForm<T> {
 
         // onnx.execution_order()?.into_iter().for_each(|elem| {
         for elem in onnx.execution_order()? {
-            ret.insert(Self::get_specifc_node_from_operation(elem)?);
+            ret.insert(Self::get_specifc_node_from_operation(elem, &mut map)?);
         }
 
         if let Some(start) = &mut ret.nodes {
@@ -224,7 +265,7 @@ impl<T: Default + 'static> GraphForm<T> {
             let inp = omap.get_mut(name);
             match inp {
                 Some(input) => *input = TypedArray::empty_from_discriminant(discriminant, shape),
-                None => {},
+                None => {}
             }
         }
 
@@ -282,7 +323,10 @@ impl<T: Default + 'static> GraphForm<T> {
             }
         });
         if let Some(nodes) = &self.nodes {
-            nodes.iter().for_each(|val| val.pass(omap));
+            for node in nodes {
+                pass_node(node.as_ref(), omap);
+            }
+            // nodes.iter().for_each(|val| val.pass(omap));
         }
     }
 }

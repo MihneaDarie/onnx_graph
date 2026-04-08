@@ -40,7 +40,11 @@ impl<T: Default> FromOnnxOperation for ConstantOfShapeNode<T> {
             .map(|tensor| TypedArray::from_tensor(&tensor));
         constant_of_shape.value = value;
 
-        constant_of_shape.add_input_strings(elem.inputs[0].clone());
+        if elem.input_count() != 0 {
+            constant_of_shape.add_input_strings(elem.inputs[0].clone());
+        } else {
+            constant_of_shape.add_input_strings(elem.name.clone());
+        }
         constant_of_shape.add_output_strings(elem.outputs[0].clone());
         Ok(constant_of_shape)
     }
@@ -140,15 +144,7 @@ impl<T: Default + 'static> Node<T> for ConstantOfShapeNode<T> {
         }
     }
 
-    fn insert(&mut self, next: Box<dyn Node<T>>) -> Result<()> {
-        if let Some(next_node) = &mut self.next_node {
-            next_node[0].insert(next)?;
-            return Ok(());
-        } else {
-            self.next_node = Some(vec![next])
-        }
-        Ok(())
-    }
+    
 
     fn determine_output_shape(&mut self, omap: &mut TensorMap) {
         let [x, o] = omap.get_disjoint_mut([&self.shape_array, &self.o]);
@@ -157,6 +153,10 @@ impl<T: Default + 'static> Node<T> for ConstantOfShapeNode<T> {
         match (x, o, &self.value) {
             (Some(x), Some(result), Some(value)) => {
                 x.constant_of_shape(value, result).unwrap();
+            }
+
+            (None, Some(result), Some(value)) => {
+                *result = value.clone();
             }
             _ => panic!("ConstantOfShapeNode: missing input {}", self.shape_array),
         }

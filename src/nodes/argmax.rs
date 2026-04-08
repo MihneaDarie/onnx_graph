@@ -139,15 +139,7 @@ impl<T: Default + 'static> Node<T> for ArgMaxNode<T> {
         }
     }
 
-    fn insert(&mut self, next: Box<dyn Node<T>>) -> Result<()> {
-        if let Some(next_node) = &mut self.next_node {
-            next_node[0].insert(next)?;
-            return Ok(());
-        } else {
-            self.next_node = Some(vec![next]);
-        }
-        Ok(())
-    }
+    
 
     fn determine_output_shape(&mut self, omap: &mut TensorMap) {
         let [x, o] = omap.get_disjoint_mut([&self.data, &self.o]);
