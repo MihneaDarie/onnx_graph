@@ -1,7 +1,6 @@
-use std::{any::Any, collections::HashMap};
+use std::any::Any;
 
 use crate::{
-    call_gather_for_typed_array,
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
     tensor_map::TensorMap,
     typed_array::TypedArray,
@@ -9,7 +8,7 @@ use crate::{
 
 use anyhow::{Ok, Result};
 use ndarray::{ArrayD, IxDyn};
-use onnx_extractor::{AttributeValue, OnnxOperation};
+use onnx_extractor::OnnxOperation;
 
 #[derive(Default)]
 pub struct GatherNode<T: Default> {
@@ -114,22 +113,6 @@ impl<T: Default + 'static> Node<T> for GatherNode<T> {
         }
     }
 
-    fn self_count(&self, count: usize) -> usize {
-        if let Some(next) = &self.next_node {
-            let mut ct = 0;
-            let mut sum = 0;
-            next.iter().for_each(|val| {
-                sum += val.self_count(ct);
-                ct += 1;
-            });
-            sum
-        } else {
-            count
-        }
-    }
-
-    
-
     fn determine_output_shape(&mut self, omap: &mut TensorMap) {
         let [data, indices, o] = omap.get_disjoint_mut([&self.data, &self.indices, &self.o]);
         let data = data.map(|arr| &*arr);
@@ -145,18 +128,19 @@ impl<T: Default + 'static> Node<T> for GatherNode<T> {
                 self.axis as usize
             };
 
+            let is_scalar_index = idx_shape.is_empty() || idx_shape == [1];
+
             let mut out_shape: Vec<usize> = Vec::new();
             for i in data_shape.iter().take(axis) {
                 out_shape.push(*i);
             }
-            for &s in idx_shape {
-                out_shape.push(s);
+            if !is_scalar_index {
+                for &s in idx_shape {
+                    out_shape.push(s);
+                }
             }
             for i in data_shape.iter().skip(axis + 1) {
                 out_shape.push(*i);
-            }
-            if out_shape.is_empty() {
-                out_shape.push(1);
             }
 
             *o = TypedArray::empty_with_others_type(data, &out_shape);
@@ -168,6 +152,152 @@ impl<T: Default + 'static> Node<T> for GatherNode<T> {
             }
         }
     }
+}
+
+macro_rules! call_gather_for_typed_array {
+    ($data:expr, $axis:expr, $idx_vec:expr, $idx_shape:expr, $o:expr, [$($variant:ident),+]) => {
+
+        match $data {
+            $(
+                TypedArray::$variant(arr) => gather_variant!($variant, $axis, $idx_vec, $idx_shape, arr, $o),
+            )+
+            TypedArray::Bool(arr) => {
+                let ndim = arr.ndim() as i64;
+                let axis_usize = if $axis < 0 {
+                    (ndim + $axis) as usize
+                } else {
+                    $axis as usize
+                };
+
+                let data_shape = arr.shape();
+                let axis_size = data_shape[axis_usize] as i64;
+
+                let is_scalar_index = $idx_shape.is_empty() || $idx_shape == [1usize];
+
+                let mut out_shape: Vec<usize> = Vec::new();
+                for i in 0..axis_usize {
+                    out_shape.push(data_shape[i]);
+                }
+                if !is_scalar_index {
+                    for &s in &($idx_shape) {
+                        out_shape.push(s);
+                    }
+                }
+                for i in (axis_usize + 1)..data_shape.len() {
+                    out_shape.push(data_shape[i]);
+                }
+
+
+                let needs_alloc = match &*($o) {
+                    TypedArray::Bool(out) => out.shape() != out_shape.as_slice(),
+                    _ => true,
+                };
+
+                if needs_alloc {
+                    *($o) = TypedArray::Bool(ArrayD::from_elem(IxDyn(&out_shape),false));
+                }
+
+                let out_arr = match $o {
+                    TypedArray::Bool(arr) => arr,
+                    _ => unreachable!(),
+                };
+
+                let data_sl = arr.as_slice_memory_order().unwrap();
+                let out_sl = out_arr.as_slice_memory_order_mut().unwrap();
+
+                let outer_size: usize = data_shape[..axis_usize].iter().product();
+                let inner_size: usize = data_shape[axis_usize + 1..].iter().product();
+                let axis_dim = data_shape[axis_usize];
+
+                let mut out_idx = 0;
+                for outer in 0..outer_size.max(1) {
+                    for &idx in &($idx_vec) {
+                        let idx = if idx < 0 {
+                            (axis_size + idx) as usize
+                        } else {
+                            idx as usize
+                        };
+
+                        let src_offset = outer * axis_dim * inner_size + idx * inner_size;
+                        let len = inner_size.max(1);
+
+                        out_sl[out_idx..out_idx + len]
+                            .copy_from_slice(&data_sl[src_offset..src_offset + len]);
+                        out_idx += len;
+                    }
+                }
+            }
+            _ => return Err(anyhow::anyhow!("argmax: unsupported type")),
+        }
+    };
+}
+
+macro_rules! gather_variant {
+    ($variant:ident, $axis:expr, $idx_vec:expr, $idx_shape:expr, $arr:expr, $o:expr) => {{
+        let ndim = $arr.ndim() as i64;
+        let axis_usize = if $axis < 0 {
+            (ndim + $axis) as usize
+        } else {
+            $axis as usize
+        };
+
+        let data_shape = $arr.shape();
+        let axis_size = data_shape[axis_usize] as i64;
+
+        let is_scalar_index = $idx_shape.is_empty() || $idx_shape == [1usize];
+
+        let mut out_shape: Vec<usize> = Vec::new();
+        for i in 0..axis_usize {
+            out_shape.push(data_shape[i]);
+        }
+        if !is_scalar_index {
+            for &s in &($idx_shape) {
+                out_shape.push(s);
+            }
+        }
+        for i in (axis_usize + 1)..data_shape.len() {
+            out_shape.push(data_shape[i]);
+        }
+
+        let needs_alloc = match &*($o) {
+            TypedArray::$variant(out) => out.shape() != out_shape.as_slice(),
+            _ => true,
+        };
+
+        if needs_alloc {
+            *($o) = TypedArray::$variant(ArrayD::zeros(IxDyn(&out_shape)));
+        }
+
+        let out_arr = match $o {
+            TypedArray::$variant(arr) => arr,
+            _ => unreachable!(),
+        };
+
+        let data_sl = $arr.as_slice_memory_order().unwrap();
+        let out_sl = out_arr.as_slice_memory_order_mut().unwrap();
+
+        let outer_size: usize = data_shape[..axis_usize].iter().product();
+        let inner_size: usize = data_shape[axis_usize + 1..].iter().product();
+        let axis_dim = data_shape[axis_usize];
+
+        let mut out_idx = 0;
+        for outer in 0..outer_size.max(1) {
+            for &idx in &($idx_vec) {
+                let idx = if idx < 0 {
+                    (axis_size + idx) as usize
+                } else {
+                    idx as usize
+                };
+
+                let src_offset = outer * axis_dim * inner_size + idx * inner_size;
+                let len = inner_size.max(1);
+
+                out_sl[out_idx..out_idx + len]
+                    .copy_from_slice(&data_sl[src_offset..src_offset + len]);
+                out_idx += len;
+            }
+        }
+    }};
 }
 
 impl TypedArray {

@@ -24,7 +24,6 @@ pub struct MatMulNode<T: Default> {
 
 impl<T: Default> FromOnnxOperation for MatMulNode<T> {
     fn from_onnx_operation(elem: &OnnxOperation) -> Result<Self> {
-        let attrs = &elem.attributes;
         let mut gemm = Self {
             a: String::new(),
             b: String::new(),
@@ -95,7 +94,9 @@ impl<T: Default + 'static> Node<T> for MatMulNode<T> {
         let b = &*b.unwrap();
 
         match o {
-            Some(result) => {}
+            Some(result) => {
+                a.matmul(b, result).unwrap();
+            }
             _ => panic!("MatMulNode: missing output {}", self.o),
         }
     }
@@ -109,22 +110,6 @@ impl<T: Default + 'static> Node<T> for MatMulNode<T> {
             next.iter().for_each(|v| v.print());
         }
     }
-
-    fn self_count(&self, count: usize) -> usize {
-        if let Some(next) = &self.next_node {
-            let mut ct = 0;
-            let mut sum = 0;
-            next.iter().for_each(|val| {
-                sum += val.self_count(ct);
-                ct += 1;
-            });
-            sum
-        } else {
-            count
-        }
-    }
-
-    
 
     fn determine_output_shape(&mut self, omap: &mut TensorMap) {
         let [a, b, o] = omap.get_disjoint_mut([&self.a, &self.b, &self.o]);

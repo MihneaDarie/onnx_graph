@@ -52,6 +52,18 @@ macro_rules! discriminant_macro {
 }
 
 #[macro_export]
+macro_rules! matches_datatype {
+    ($array:expr, $to:expr, [$($variant:ident),+]) => {
+        match $array {
+            $(
+                TypedArray::$variant(_) => $to == DataType::$variant,
+            )+
+            TypedArray::Undefined => $to == DataType::Undefined,
+        }
+    };
+}
+
+#[macro_export]
 macro_rules! zeros_from_datatype {
     ($data_type:expr, $shape:expr, [$($variant:ident),+]) => {
         match $data_type {
@@ -73,95 +85,6 @@ macro_rules! zeros_from_discriminants {
             )+
             TypedArrayDiscriminants::Bool => TypedArray::Bool(ArrayD::from_elem($shape, false)),
              _ => TypedArray::Undefined
-        }
-    };
-}
-
-macro_rules! cast_to {
-    ($data_type:expr, $src_arr:expr) => {};
-}
-
-#[macro_export]
-macro_rules! cast_to_dst {
-    ($arr_base:expr, $data_type:expr, $out:expr, $T_src:ty, [$(($variant_dst:ident, $T_dst:ty)),+]) => {
-        match $data_type {
-            $(
-                DataType::$variant_dst => {
-                        if let TypedArray::$variant_dst(out_array) = $out {
-                            let out_slice = out_array.as_slice_memory_order_mut().unwrap();
-                            $arr_base.as_slice_memory_order()
-                                .unwrap()
-                                .par_iter()
-                                .zip(out_slice.par_iter_mut())
-                                .for_each(|(src, dst)| *dst = *src as $T_dst);
-                    }
-                }
-            )+
-            DataType::Bool => {
-                    if let TypedArray::Bool(out_array) = $out {
-                        let out_slice = out_array.as_slice_memory_order_mut().unwrap();
-                        $arr_base.as_slice_memory_order()
-                            .unwrap()
-                            .par_iter()
-                            .zip(out_slice.par_iter_mut())
-                            .for_each(|(src, dst)| *dst = *src != (0 as $T_src));
-                    }
-                }
-            _ => anyhow::bail!("Can't cast to unsupported array!"),
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! cast_bool_to_dst {
-    ($arr_base:expr, $data_type:expr, $out:expr, [$(($variant_dst:ident, $T_dst:ty)),+]) => {
-        match $data_type {
-            $(
-                DataType::$variant_dst => {
-                    if let TypedArray::$variant_dst(out_array) = $out {
-                        let out_slice = out_array.as_slice_memory_order_mut().unwrap();
-                        $arr_base.as_slice_memory_order()
-                            .unwrap()
-                            .par_iter()
-                            .zip(out_slice.par_iter_mut())
-                            .for_each(|(src, dst)| *dst = if *src == true {1 as $T_dst} else {0 as $T_dst});
-                    }
-                }
-            )+
-            DataType::Bool => {
-                    if let TypedArray::Bool(out_array) = $out {
-                        let out_slice = out_array.as_slice_memory_order_mut().unwrap();
-                        $arr_base.as_slice_memory_order()
-                            .unwrap()
-                            .par_iter()
-                            .zip(out_slice.par_iter_mut())
-                            .for_each(|(src, dst)| *dst = *src);
-                    }
-                }
-            _ => anyhow::bail!("Can't cast to unsupported array!"),
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! copy_and_cast_from_datatype {
-    ($data_type:expr, $src:expr, $out:expr, [$(($variant_src:ident, $T_src:ty)),+], $dst_list:tt) => {
-        use ndarray::ArrayD;
-        use rayon::iter::IndexedParallelIterator;
-        use rayon::iter::IntoParallelRefIterator;
-        use rayon::iter::IntoParallelRefMutIterator;
-        use rayon::iter::ParallelIterator;
-
-        match $src {
-            $(
-                TypedArray::$variant_src(arr_base) => {
-                    $crate::cast_to_dst!(arr_base, $data_type, $out, $T_src, $dst_list)
-                }
-            )+
-            TypedArray::Bool(array_base) => {
-                $crate::cast_bool_to_dst!(array_base, $data_type, $out, $dst_list)
-            }
-            _ => anyhow::bail!("Can't cast unsupported array!"),
         }
     };
 }

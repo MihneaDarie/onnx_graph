@@ -1,7 +1,4 @@
-use std::{any::Any, collections::HashMap};
-
 use crate::{
-    copy_and_cast_from_datatype,
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
     tensor_map::TensorMap,
     typed_array::TypedArray,
@@ -9,6 +6,7 @@ use crate::{
 };
 use anyhow::Result;
 use onnx_extractor::{DataType, OnnxOperation};
+use std::any::Any;
 
 #[derive(Default)]
 pub struct CastNode<T: Default> {
@@ -73,7 +71,9 @@ impl<T: Default + 'static> Node<T> for CastNode<T> {
         let x = &*x.unwrap();
 
         match (o, self.to) {
-            (Some(result), Some(to)) => x.cast(result, to).unwrap(),
+            (Some(result), Some(to)) => {
+                x.cast(result, to).unwrap();
+            }
             _ => panic!("CastNode: missing input {}", self.x),
         }
     }
@@ -107,22 +107,6 @@ impl<T: Default + 'static> Node<T> for CastNode<T> {
         }
     }
 
-    fn self_count(&self, count: usize) -> usize {
-        if let Some(next) = &self.next_node {
-            let mut ct = 0;
-            let mut sum = 0;
-            next.iter().for_each(|val| {
-                sum += val.self_count(ct);
-                ct += 1;
-            });
-            sum
-        } else {
-            count
-        }
-    }
-
-    
-
     fn determine_output_shape(&mut self, omap: &mut TensorMap) {
         let [x, o] = omap.get_disjoint_mut([&self.x, &self.o]);
         let x = x.map(|arr| &*arr);
@@ -141,16 +125,98 @@ impl<T: Default + 'static> Node<T> for CastNode<T> {
     }
 }
 
+macro_rules! cast_to_dst {
+    ($arr_base:expr, $data_type:expr, $out:expr, $T_src:ty, [$(($variant_dst:ident, $T_dst:ty)),+]) => {
+        match $data_type {
+            $(
+                DataType::$variant_dst => {
+                        if let TypedArray::$variant_dst(out_array) = $out {
+                            let out_slice = out_array.as_slice_memory_order_mut().unwrap();
+                            $arr_base.as_slice_memory_order()
+                                .unwrap()
+                                .par_iter()
+                                .zip(out_slice.par_iter_mut())
+                                .for_each(|(src, dst)| *dst = *src as $T_dst);
+                    }
+                }
+            )+
+            DataType::Bool => {
+                    if let TypedArray::Bool(out_array) = $out {
+                        let out_slice = out_array.as_slice_memory_order_mut().unwrap();
+                        $arr_base.as_slice_memory_order()
+                            .unwrap()
+                            .par_iter()
+                            .zip(out_slice.par_iter_mut())
+                            .for_each(|(src, dst)| *dst = *src != (0 as $T_src));
+                    }
+                }
+            _ => anyhow::bail!("Can't cast to unsupported array!"),
+        }
+    };
+}
+
+macro_rules! cast_bool_to_dst {
+    ($arr_base:expr, $data_type:expr, $out:expr, [$(($variant_dst:ident, $T_dst:ty)),+]) => {
+        match $data_type {
+            $(
+                DataType::$variant_dst => {
+                    if let TypedArray::$variant_dst(out_array) = $out {
+                        let out_slice = out_array.as_slice_memory_order_mut().unwrap();
+                        $arr_base.as_slice_memory_order()
+                            .unwrap()
+                            .par_iter()
+                            .zip(out_slice.par_iter_mut())
+                            .for_each(|(src, dst)| *dst = if *src == true {1 as $T_dst} else {0 as $T_dst});
+                    }
+                }
+            )+
+            DataType::Bool => {
+                    if let TypedArray::Bool(out_array) = $out {
+                        let out_slice = out_array.as_slice_memory_order_mut().unwrap();
+                        $arr_base.as_slice_memory_order()
+                            .unwrap()
+                            .par_iter()
+                            .zip(out_slice.par_iter_mut())
+                            .for_each(|(src, dst)| *dst = *src);
+                    }
+                }
+            _ => anyhow::bail!("Can't cast to unsupported array!"),
+        }
+    };
+}
+
+macro_rules! copy_and_cast_from_datatype {
+    ($data_type:expr, $src:expr, $out:expr, [$(($variant_src:ident, $T_src:ty)),+], $dst_list:tt) => {
+        use ndarray::ArrayD;
+        use rayon::iter::IndexedParallelIterator;
+        use rayon::iter::IntoParallelRefIterator;
+        use rayon::iter::IntoParallelRefMutIterator;
+        use rayon::iter::ParallelIterator;
+
+        match $src {
+            $(
+                TypedArray::$variant_src(arr_base) => {
+                    cast_to_dst!(arr_base, $data_type, $out, $T_src, $dst_list)
+                }
+            )+
+            TypedArray::Bool(array_base) => {
+                cast_bool_to_dst!(array_base, $data_type, $out, $dst_list)
+            }
+            _ => anyhow::bail!("Can't cast unsupported array!"),
+        }
+    };
+}
+
 impl TypedArray {
     pub fn cast(&self, o: &mut TypedArray, to: DataType) -> anyhow::Result<()> {
         let need_alloc = match (self.shape(), o.shape()) {
-            (None, None) => panic!("Undefined input and ouput arrays !"),
-            (None, Some(o_shape)) => panic!("Mismatching shapes in-None - out-{o_shape:?} !"),
+            (None, _) => panic!("Undefined input array!"),
             (Some(_), None) => true,
-            (Some(in_shape), Some(out_shape)) => in_shape != out_shape,
+            (Some(in_shape), Some(out_shape)) => in_shape != out_shape || !o.matches_datatype(to),
         };
 
-        if need_alloc && let Some(in_shape) = self.shape() {
+        if need_alloc {
+            let in_shape = self.shape().unwrap();
             *o = zeros_from_datatype!(
                 to,
                 in_shape,

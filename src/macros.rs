@@ -1,15 +1,4 @@
 pub mod activation_macros;
-pub mod argmax_macros;
 pub mod binop_macros;
-pub mod cast_macros;
-pub mod concat_macros;
 pub mod function_call_macros;
-pub mod gather_macros;
-pub mod max_pool_macros;
-pub mod pow_macros;
-pub mod reshape_macros;
-pub mod slice_macros;
-pub mod softmax_macros;
-pub mod split_macros;
-pub mod transpose_macro;
 pub mod utils_macros;

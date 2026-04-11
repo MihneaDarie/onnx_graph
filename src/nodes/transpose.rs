@@ -1,13 +1,12 @@
-use std::{any::Any, collections::HashMap};
+use std::any::Any;
 
 use crate::{
-    call_transpose_for_typed_array,
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
 use anyhow::Result;
-use onnx_extractor::{AttributeValue, OnnxOperation};
+use onnx_extractor::OnnxOperation;
 
 #[derive(Default)]
 pub struct TransposeNode<T: Default> {
@@ -118,22 +117,6 @@ impl<T: Default + 'static> Node<T> for TransposeNode<T> {
         }
     }
 
-    fn self_count(&self, count: usize) -> usize {
-        if let Some(next) = &self.next_node {
-            let mut ct = 0;
-            let mut sum = 0;
-            next.iter().for_each(|val| {
-                sum += val.self_count(ct);
-                ct += 1;
-            });
-            sum
-        } else {
-            count
-        }
-    }
-
-    
-
     fn determine_output_shape(&mut self, omap: &mut TensorMap) {
         let [x, o] = omap.get_disjoint_mut([&self.input, &self.o]);
         let x = x.map(|arr| &*arr);
@@ -167,6 +150,59 @@ impl<T: Default + 'static> Node<T> for TransposeNode<T> {
             }
         }
     }
+}
+
+macro_rules! call_transpose_for_typed_array {
+    ($self:expr, $perm:expr, $o:expr, [$($variant:ident),+]) => {
+
+        match $self {
+            $(
+                TypedArray::$variant(a) => transpose_variant!($variant, $perm, a, $o),
+            )+
+            _ => return Err(anyhow::anyhow!("unsupported type for transpose")),
+        }
+    };
+}
+
+macro_rules! transpose_variant {
+    ($variant:ident, $perm:expr, $a:expr, $o:expr) => {{
+        use ndarray::ArrayD;
+        use ndarray::IxDyn;
+
+        let ndim = $a.ndim();
+        let perm: Vec<usize> = if $perm.is_empty() {
+            (0..ndim).rev().collect()
+        } else {
+            $perm
+                .iter()
+                .map(|&p| {
+                    if p < 0 {
+                        (ndim as i64 + p) as usize
+                    } else {
+                        p as usize
+                    }
+                })
+                .collect()
+        };
+
+        let out_shape: Vec<usize> = perm.iter().map(|&p| $a.shape()[p]).collect();
+
+        let needs_alloc = match &*$o {
+            TypedArray::$variant(out) => out.shape() != out_shape.as_slice(),
+            _ => true,
+        };
+        if needs_alloc {
+            *$o = TypedArray::$variant(ArrayD::zeros(IxDyn(&out_shape)));
+        }
+
+        let view = $a.view().permuted_axes(&*perm);
+
+        if let TypedArray::$variant(out) = $o {
+            ndarray::Zip::from(out).and(&view).par_for_each(|d, s| {
+                *d = *s;
+            });
+        }
+    }};
 }
 
 impl TypedArray {

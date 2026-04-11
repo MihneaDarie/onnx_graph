@@ -1,4 +1,4 @@
-use std::{any::Any, collections::HashMap};
+use std::any::Any;
 
 use crate::{
     impl_typed_binop,
@@ -6,7 +6,6 @@ use crate::{
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
-use anyhow::Result;
 use onnx_extractor::OnnxOperation;
 use saker_rs::linarg::operations::div_maybe_simd;
 
@@ -120,28 +119,12 @@ impl<T: Default + 'static> Node<T> for DivNode<T> {
         }
     }
 
-    fn self_count(&self, count: usize) -> usize {
-        if let Some(next) = &self.next_node {
-            let mut ct = 0;
-            let mut sum = 0;
-            next.iter().for_each(|val| {
-                sum += val.self_count(ct);
-                ct += 1;
-            });
-            sum
-        } else {
-            count
-        }
-    }
-
-    
     fn determine_output_shape(&mut self, omap: &mut TensorMap) {
         let [a, o] = omap.get_disjoint_mut([&self.a, &self.o]);
         let a = a.map(|arr| &*arr);
         if let (Some(a), Some(o)) = (a, o) {
-            println!("{:?}", a.shape());
             if let Some(in_shape) = a.shape() {
-                *o = TypedArray::empty_with_others_type(a, in_shape);
+                *o = TypedArray::empty_with_others_type(a, in_shape).ensure_contiguous();
             }
         }
 

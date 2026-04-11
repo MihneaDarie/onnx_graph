@@ -7,7 +7,7 @@ use crate::{
     typed_array::TypedArray,
 };
 
-use anyhow::Result;
+use ndarray::{ArrayD, IxDyn};
 use onnx_extractor::OnnxOperation;
 use saker_rs::linarg::operations::add_maybe_simd;
 
@@ -89,17 +89,21 @@ impl<T: Default + 'static> Node<T> for AddNode<T> {
 
         match o {
             Some(out) => {
-                if let (
-                    TypedArray::Float(a_arr),
-                    TypedArray::Float(b_arr),
-                    TypedArray::Float(o_arr),
-                ) = (a, b, &mut *out)
-                {
+                if let (TypedArray::Float(a_arr), TypedArray::Float(b_arr)) = (a, b) {
                     if a_arr.shape() == b_arr.shape() {
-                        let a_sl = a_arr.as_slice_memory_order().unwrap();
-                        let b_sl = b_arr.as_slice_memory_order().unwrap();
-                        let dst = o_arr.as_slice_memory_order_mut().unwrap();
-                        add_maybe_simd(a_sl, b_sl, dst);
+                        let needs_alloc = match &*out {
+                            TypedArray::Float(o_arr) => o_arr.shape() != a_arr.shape(),
+                            _ => true,
+                        };
+                        if needs_alloc {
+                            *out = TypedArray::Float(ArrayD::zeros(IxDyn(a_arr.shape())));
+                        }
+                        if let TypedArray::Float(o_arr) = &mut *out {
+                            let a_sl = a_arr.as_slice_memory_order().unwrap();
+                            let b_sl = b_arr.as_slice_memory_order().unwrap();
+                            let dst = o_arr.as_slice_memory_order_mut().unwrap();
+                            add_maybe_simd(a_sl, b_sl, dst);
+                        }
                     } else {
                         a.add(b, out).unwrap();
                     }
@@ -107,7 +111,7 @@ impl<T: Default + 'static> Node<T> for AddNode<T> {
                     a.add(b, out).unwrap();
                 }
             }
-            _ => panic!("AddNode: missing input(s) - a={} b={}", self.a, self.b),
+            _ => panic!("AddNode: missing output"),
         }
     }
 
@@ -120,22 +124,6 @@ impl<T: Default + 'static> Node<T> for AddNode<T> {
             next.iter().for_each(|v| v.print());
         }
     }
-
-    fn self_count(&self, count: usize) -> usize {
-        if let Some(next) = &self.next_node {
-            let mut ct = 0;
-            let mut sum = 0;
-            next.iter().for_each(|val| {
-                sum += val.self_count(ct);
-                ct += 1;
-            });
-            sum
-        } else {
-            count
-        }
-    }
-
-    
 
     fn determine_output_shape(&mut self, omap: &mut TensorMap) {
         let [a, o] = omap.get_disjoint_mut([&self.a, &self.o]);

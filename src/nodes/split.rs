@@ -1,13 +1,12 @@
-use std::{any::Any, collections::HashMap};
+use std::any::Any;
 
 use crate::{
-    call_split_for_typed_array,
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
 use anyhow::Result;
-use onnx_extractor::{AttributeValue, OnnxOperation};
+use onnx_extractor::OnnxOperation;
 
 #[derive(Default)]
 pub struct SplitNode<T: Default> {
@@ -154,22 +153,6 @@ impl<T: Default + 'static> Node<T> for SplitNode<T> {
         }
     }
 
-    fn self_count(&self, count: usize) -> usize {
-        if let Some(next) = &self.next_node {
-            let mut ct = 0;
-            let mut sum = 0;
-            next.iter().for_each(|val| {
-                sum += val.self_count(ct);
-                ct += 1;
-            });
-            sum
-        } else {
-            count
-        }
-    }
-
-    
-
     fn determine_output_shape(&mut self, omap: &mut TensorMap) {
         if let Some(list) = &mut self.next_node {
             for next in list {
@@ -177,6 +160,58 @@ impl<T: Default + 'static> Node<T> for SplitNode<T> {
             }
         }
     }
+}
+
+macro_rules! call_split_for_typed_array {
+    ($self:expr, $axis:expr, $splits:expr, $outputs:expr, [$($variant:ident),+]) => {
+        use ndarray::IxDyn;
+
+        match $self {
+            $(
+                TypedArray::$variant(a) => split_variant!($variant, $axis, $splits, a, $outputs),
+            )+
+            _ => return Err(anyhow::anyhow!("unsupported type for split")),
+        }
+    };
+}
+
+macro_rules! split_variant {
+    ($variant:ident, $axis:expr, $splits:expr, $a:expr, $outputs:expr) => {{
+        let ndim = $a.ndim() as i64;
+        let axis = if $axis < 0 {
+            (ndim + $axis) as usize
+        } else {
+            $axis as usize
+        };
+
+        let mut offset = 0;
+        for &size in $splits.iter() {
+            let size = size as usize;
+            let slice_info: Vec<ndarray::SliceInfoElem> = (0..$a.ndim())
+                .map(|i| {
+                    if i == axis {
+                        ndarray::SliceInfoElem::Slice {
+                            start: offset as isize,
+                            end: Some((offset + size) as isize),
+                            step: 1,
+                        }
+                    } else {
+                        ndarray::SliceInfoElem::Slice {
+                            start: 0,
+                            end: None,
+                            step: 1,
+                        }
+                    }
+                })
+                .collect();
+
+            $outputs.push(TypedArray::$variant(
+                $a.slice(ndarray::SliceInfo::<_, IxDyn, IxDyn>::try_from(slice_info)?)
+                    .to_owned(),
+            ));
+            offset += size;
+        }
+    }};
 }
 
 impl TypedArray {

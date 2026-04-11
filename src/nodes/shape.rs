@@ -111,22 +111,6 @@ impl<T: Default + 'static> Node<T> for ShapeNode<T> {
         }
     }
 
-    fn self_count(&self, count: usize) -> usize {
-        if let Some(next) = &self.next_node {
-            let mut ct = 0;
-            let mut sum = 0;
-            next.iter().for_each(|val| {
-                sum += val.self_count(ct);
-                ct += 1;
-            });
-            sum
-        } else {
-            count
-        }
-    }
-
-    
-
     fn determine_output_shape(&mut self, omap: &mut TensorMap) {
         let [x, o] = omap.get_disjoint_mut([&self.data, &self.o]);
         let x = x.map(|arr| &*arr);
@@ -135,13 +119,11 @@ impl<T: Default + 'static> Node<T> for ShapeNode<T> {
             && let Some(in_shape) = x.shape()
         {
             let r = in_shape.len() as i64;
-
             let start = if self.start < 0 {
                 (r + self.start).max(0) as usize
             } else {
                 (self.start as usize).min(r as usize)
             };
-
             let end = match self.end {
                 Some(e) => {
                     if e < 0 {
@@ -152,7 +134,6 @@ impl<T: Default + 'static> Node<T> for ShapeNode<T> {
                 }
                 None => r as usize,
             };
-
             let len = end.saturating_sub(start);
             *o = TypedArray::Int64(ArrayD::zeros(IxDyn(&[len])));
         }

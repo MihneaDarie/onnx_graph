@@ -1,4 +1,4 @@
-use std::{any::Any, collections::HashMap, str::FromStr};
+use std::{any::Any, str::FromStr};
 
 use crate::{
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
@@ -12,9 +12,9 @@ pub struct Conv2D {
     pub stride: usize,
 }
 
-use anyhow::{Ok, Result};
+use anyhow::Ok;
 use ndarray::{Ix1, Ix4};
-use onnx_extractor::{AttributeValue, OnnxOperation};
+use onnx_extractor::OnnxOperation;
 use saker_rs::activations::Activation;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -253,22 +253,6 @@ impl<T: Default + 'static> Node<T> for ConvNode<T> {
             next.iter().for_each(|v| v.print());
         }
     }
-
-    fn self_count(&self, count: usize) -> usize {
-        if let Some(next) = &self.next_node {
-            let mut ct = 0;
-            let mut sum = 0;
-            next.iter().for_each(|val| {
-                sum += val.self_count(ct);
-                ct += 1;
-            });
-            sum
-        } else {
-            count
-        }
-    }
-
-    
 
     fn determine_output_shape(&mut self, omap: &mut TensorMap) {
         let [x, w, o] = omap.get_disjoint_mut([&self.x, &self.w, &self.o]);

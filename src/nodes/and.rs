@@ -103,22 +103,6 @@ impl<T: Default + 'static> Node<T> for AndNode<T> {
         }
     }
 
-    fn self_count(&self, count: usize) -> usize {
-        if let Some(next) = &self.next_node {
-            let mut ct = 0;
-            let mut sum = 0;
-            next.iter().for_each(|val| {
-                sum += val.self_count(ct);
-                ct += 1;
-            });
-            sum
-        } else {
-            count
-        }
-    }
-
-    
-
     fn determine_output_shape(&mut self, omap: &mut TensorMap) {
         let [a, o] = omap.get_disjoint_mut([&self.a, &self.o]);
         let a = a.map(|arr| &*arr);
@@ -126,7 +110,7 @@ impl<T: Default + 'static> Node<T> for AndNode<T> {
         if let (Some(a), Some(o)) = (a, o)
             && let Some(in_shape) = a.shape()
         {
-            *o = TypedArray::Bool(ArrayD::default(IxDyn(in_shape))).ensure_contiguous()
+            *o = TypedArray::Bool(ArrayD::default(IxDyn(in_shape))).ensure_contiguous();
         }
 
         if let Some(list) = &mut self.next_node {

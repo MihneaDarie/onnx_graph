@@ -1,14 +1,11 @@
 use std::{any::Any, collections::HashMap};
 
 use crate::{
-    call_pow_for_typed_array,
     nodes::{node::Node, unique_ids::UniqueId},
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
-use anyhow::Result;
 use onnx_extractor::OnnxOperation;
-use saker_rs::linarg::operations::mul_maybe_simd;
 
 #[derive(Default)]
 pub struct PowNode<T: Default> {
@@ -102,22 +99,6 @@ impl<T: Default + 'static> Node<T> for PowNode<T> {
         }
     }
 
-    fn self_count(&self, count: usize) -> usize {
-        if let Some(next) = &self.next_node {
-            let mut ct = 0;
-            let mut sum = 0;
-            next.iter().for_each(|val| {
-                sum += val.self_count(ct);
-                ct += 1;
-            });
-            sum
-        } else {
-            count
-        }
-    }
-
-    
-
     fn determine_output_shape(&mut self, omap: &mut TensorMap) {
         let [a, o] = omap.get_disjoint_mut([&self.a, &self.o]);
         let a = a.map(|arr| &*arr);
@@ -134,6 +115,87 @@ impl<T: Default + 'static> Node<T> for PowNode<T> {
             }
         }
     }
+}
+
+macro_rules! call_pow_for_typed_array {
+    ($self:expr, $b:expr, $o:expr, $in_shape:expr, [$(($variant:ident, $T:ty)),+]) => {
+        use ndarray::ArrayD;
+        use ndarray::IxDyn;
+        use rayon::iter::IndexedParallelIterator;
+        use rayon::iter::IntoParallelRefIterator;
+        use rayon::iter::IntoParallelRefMutIterator;
+        use rayon::iter::ParallelIterator;
+
+        match $self {
+            $(
+                TypedArray::$variant(a) => impl_pow_variant!($variant, $T, a, $b, $o, $in_shape),
+            )+
+            _ => anyhow::bail!("Pow: unsupported type for A"),
+        }
+    };
+}
+
+macro_rules! impl_pow_variant {
+    ($variant: ident, $T:ty, $a_arr:expr, $b:expr, $o:expr, $in_shape:expr) => {{
+        let needs_alloc = match &($o) {
+            TypedArray::$variant(out) => out.shape() != $in_shape,
+            _ => true,
+        };
+        if needs_alloc {
+            *($o) = TypedArray::$variant(ArrayD::zeros(IxDyn($in_shape)));
+        }
+
+        if let TypedArray::$variant(out) = $o {
+            let dst = out.as_slice_memory_order_mut().unwrap();
+            let src = $a_arr.as_slice_memory_order().unwrap();
+
+            macro_rules! pow_float {
+                ($b_arr:expr) => {{
+                    let b = $b_arr.as_slice_memory_order().unwrap();
+                    if b.len() == 1 {
+                        let exp = b[0] as f64;
+                        dst.par_iter_mut()
+                            .zip(src.par_iter())
+                            .for_each(|(d, s)| *d = (*s as f64).powf(exp) as $T);
+                    } else {
+                        dst.par_iter_mut()
+                            .zip(src.par_iter().zip(b.par_iter()))
+                            .for_each(|(d, (s, p))| *d = (*s as f64).powf(*p as f64) as $T);
+                    }
+                }};
+            }
+
+            macro_rules! pow_int {
+                ($b_arr:expr) => {{
+                    let b = $b_arr.as_slice_memory_order().unwrap();
+                    if b.len() == 1 {
+                        let exp = b[0] as i32;
+                        dst.par_iter_mut()
+                            .zip(src.par_iter())
+                            .for_each(|(d, s)| *d = (*s as f64).powi(exp) as $T);
+                    } else {
+                        dst.par_iter_mut()
+                            .zip(src.par_iter().zip(b.par_iter()))
+                            .for_each(|(d, (s, p))| *d = (*s as f64).powi(*p as i32) as $T);
+                    }
+                }};
+            }
+
+            match $b {
+                TypedArray::Double(b) => pow_float!(b),
+                TypedArray::Float(b) => pow_float!(b),
+                TypedArray::Int64(b) => pow_int!(b),
+                TypedArray::Int32(b) => pow_int!(b),
+                TypedArray::Int16(b) => pow_int!(b),
+                TypedArray::Int8(b) => pow_int!(b),
+                TypedArray::Uint64(b) => pow_int!(b),
+                TypedArray::Uint32(b) => pow_int!(b),
+                TypedArray::Uint16(b) => pow_int!(b),
+                TypedArray::Uint8(b) => pow_int!(b),
+                _ => anyhow::bail!("Pow: unsupported exponent type"),
+            }
+        }
+    }};
 }
 
 impl TypedArray {

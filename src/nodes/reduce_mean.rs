@@ -134,22 +134,6 @@ impl<T: Default + 'static> Node<T> for ReduceMeanNode<T> {
         }
     }
 
-    fn self_count(&self, count: usize) -> usize {
-        if let Some(next) = &self.next_node {
-            let mut ct = 0;
-            let mut sum = 0;
-            next.iter().for_each(|val| {
-                sum += val.self_count(ct);
-                ct += 1;
-            });
-            sum
-        } else {
-            count
-        }
-    }
-
-    
-
     fn determine_output_shape(&mut self, omap: &mut TensorMap) {
         let axes = &self.axes.clone().unwrap_or_default();
         let [data, axes, o] = omap.get_disjoint_mut([&self.data, axes, &self.o]);
@@ -203,7 +187,6 @@ impl<T: Default + 'static> Node<T> for ReduceMeanNode<T> {
 
                 out_shape
             };
-
             if let Some(o) = o {
                 *o = TypedArray::empty_with_others_type(data, &out_shape);
             }

@@ -1,13 +1,13 @@
-use std::{any::Any, collections::HashMap};
+use std::{any::Any};
 
 use crate::{
-    call_reshape_for_typed_array, get_curent_size_and_shape,
+    get_curent_size_and_shape,
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
 use anyhow::Result;
-use onnx_extractor::{AttributeValue, OnnxOperation};
+use onnx_extractor::OnnxOperation;
 
 #[derive(Default)]
 pub struct ReshapeNode<T: Default> {
@@ -128,22 +128,6 @@ impl<T: Default + 'static> Node<T> for ReshapeNode<T> {
         }
     }
 
-    fn self_count(&self, count: usize) -> usize {
-        if let Some(next) = &self.next_node {
-            let mut ct = 0;
-            let mut sum = 0;
-            next.iter().for_each(|val| {
-                sum += val.self_count(ct);
-                ct += 1;
-            });
-            sum
-        } else {
-            count
-        }
-    }
-
-    
-
     fn determine_output_shape(&mut self, omap: &mut TensorMap) {
         let [data, shape, o] = omap.get_disjoint_mut([&self.data, &self.shape, &self.o]);
         let data = data.map(|arr| &*arr);
@@ -192,6 +176,41 @@ impl<T: Default + 'static> Node<T> for ReshapeNode<T> {
             }
         }
     }
+}
+
+macro_rules! call_reshape_for_typed_array {
+    ($self:expr, $new_shape:expr, $o:expr, [$($variant:ident),+]) => {
+        use ndarray::IxDyn;
+        use ndarray::ArrayD;
+
+        match $self {
+            $(
+                TypedArray::$variant(a) => reshape_variant!($variant, $new_shape, a, $o),
+            )+
+            _ => return Err(anyhow::anyhow!("unsupported type for reshape")),
+        }
+    };
+}
+
+macro_rules! reshape_variant {
+    ($variant:ident, $new_shape:expr ,$a:expr, $o:expr) => {{
+        let src = $a.as_slice_memory_order().unwrap();
+
+        let needs_realloc = match &*($o) {
+            TypedArray::$variant(out) => out.shape() != $new_shape.as_slice(),
+            _ => true,
+        };
+
+        if needs_realloc {
+            *($o) =
+                TypedArray::$variant(ArrayD::from_shape_vec(IxDyn(&($new_shape)), src.to_vec())?);
+        } else {
+            if let TypedArray::$variant(out) = $o {
+                let dst = out.as_slice_memory_order_mut().unwrap();
+                dst.copy_from_slice(src);
+            }
+        }
+    }};
 }
 
 impl TypedArray {
@@ -245,7 +264,9 @@ impl TypedArray {
             self,
             new_shape,
             o,
-            [Float, Double, Int32, Int64, Uint8, Uint16, Uint32, Uint64]
+            [
+                Float, Uint8, Int8, Uint16, Int16, Int32, Int64, Double, Uint32, Uint64, Bool
+            ]
         );
 
         Ok(())

@@ -6,6 +6,8 @@ use crate::{
     typed_array::TypedArray,
 };
 use anyhow::Result;
+use ndarray::ArrayD;
+use ndarray::IxDyn;
 use onnx_extractor::OnnxOperation;
 
 #[derive(Default)]
@@ -110,23 +112,41 @@ impl<T: Default + 'static> Node<T> for RangeNode<T> {
         }
     }
 
-    fn self_count(&self, count: usize) -> usize {
-        if let Some(next) = &self.next_node {
-            let mut ct = 0;
-            let mut sum = 0;
-            next.iter().for_each(|val| {
-                sum += val.self_count(ct);
-                ct += 1;
-            });
-            sum
-        } else {
-            count
-        }
-    }
-
-    
-
     fn determine_output_shape(&mut self, omap: &mut TensorMap) {
+        let [start, limit, delta, o] =
+            omap.get_disjoint_mut([&self.start, &self.limit, &self.delta, &self.o]);
+        let start = start.map(|inner| &*inner);
+        let limit = limit.map(|inner| &*inner);
+        let delta = delta.map(|inner| &*inner);
+
+        if let (Some(start), Some(limit), Some(delta), Some(o)) = (start, limit, delta, o) {
+            macro_rules! range_shape {
+                ($variant:ident) => {
+                    if let (
+                        TypedArray::$variant(s),
+                        TypedArray::$variant(l),
+                        TypedArray::$variant(d),
+                    ) = (start, limit, delta)
+                    {
+                        let s = *s.iter().next().unwrap();
+                        let l = *l.iter().next().unwrap();
+                        let d = *d.iter().next().unwrap();
+                        let n = (((l - s) as f64) / (d as f64)).ceil().max(0.0) as usize;
+                        *o = TypedArray::$variant(ArrayD::zeros(IxDyn(&[n])));
+                    }
+                };
+            }
+
+            match start {
+                TypedArray::Float(_) => range_shape!(Float),
+                TypedArray::Double(_) => range_shape!(Double),
+                TypedArray::Int32(_) => range_shape!(Int32),
+                TypedArray::Int64(_) => range_shape!(Int64),
+                TypedArray::Int16(_) => range_shape!(Int16),
+                _ => {}
+            }
+        }
+
         if let Some(list) = &mut self.next_node {
             for next in list {
                 next.determine_output_shape(omap);

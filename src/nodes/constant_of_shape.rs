@@ -90,12 +90,17 @@ impl<T: Default + 'static> Node<T> for ConstantOfShapeNode<T> {
     }
 
     fn execute(&self, omap: &mut TensorMap) {
-        let [x, o] = omap.get_disjoint_mut([&self.shape_array, &self.o]);
-        let x = x.map(|inner| &*inner);
+        let [shape_array, o] = omap.get_disjoint_mut([&self.shape_array, &self.o]);
+        let shape_array = shape_array.map(|inner| &*inner);
 
-        match (x, o, &self.value) {
-            (Some(x), Some(result), Some(value)) => {
-                x.constant_of_shape(value, result).unwrap();
+        match (shape_array, &self.value, o) {
+            (Some(x), Some(value), Some(result)) => {
+                if let Err(e) = x.constant_of_shape(value, result) {
+                    println!("!!!{e}");
+                }
+            }
+            (None, Some(value), Some(result)) => {
+                *result = value.clone();
             }
             _ => panic!("ConstantOfShapeNode: missing input {}", self.shape_array),
         }
@@ -130,32 +135,17 @@ impl<T: Default + 'static> Node<T> for ConstantOfShapeNode<T> {
         }
     }
 
-    fn self_count(&self, count: usize) -> usize {
-        if let Some(next) = &self.next_node {
-            let mut ct = 0;
-            let mut sum = 0;
-            next.iter().for_each(|val| {
-                sum += val.self_count(ct);
-                ct += 1;
-            });
-            sum
-        } else {
-            count
-        }
-    }
-
-    
-
     fn determine_output_shape(&mut self, omap: &mut TensorMap) {
         let [x, o] = omap.get_disjoint_mut([&self.shape_array, &self.o]);
         let x = x.map(|inner| &*inner);
 
-        match (x, o, &self.value) {
-            (Some(x), Some(result), Some(value)) => {
-                x.constant_of_shape(value, result).unwrap();
+        match (x, &self.value, o) {
+            (Some(x), Some(value), Some(result)) => {
+                if let Err(e) = x.constant_of_shape(value, result) {
+                    println!("!!!{e}");
+                }
             }
-
-            (None, Some(result), Some(value)) => {
+            (None, Some(value), Some(result)) => {
                 *result = value.clone();
             }
             _ => panic!("ConstantOfShapeNode: missing input {}", self.shape_array),

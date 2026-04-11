@@ -120,22 +120,6 @@ impl<T: Default + 'static> Node<T> for FlattenNode<T> {
         }
     }
 
-    fn self_count(&self, count: usize) -> usize {
-        if let Some(next) = &self.next_node {
-            let mut ct = 0;
-            let mut sum = 0;
-            next.iter().for_each(|val| {
-                sum += val.self_count(ct);
-                ct += 1;
-            });
-            sum
-        } else {
-            count
-        }
-    }
-
-    
-
     fn determine_output_shape(&mut self, omap: &mut TensorMap) {
         let [x, o] = omap.get_disjoint_mut([&self.x, &self.o]);
         let x = x.map(|arr| &*arr);
@@ -167,7 +151,6 @@ impl<T: Default + 'static> Node<T> for FlattenNode<T> {
 impl TypedArray {
     pub fn flatten_op(&self, axis: i64, o: &mut TypedArray) -> anyhow::Result<()> {
         use ndarray::ArrayD;
-        use ndarray::Dimension;
         use ndarray::IxDyn;
 
         let rank = self.shape().unwrap().len() as i64;
@@ -176,56 +159,55 @@ impl TypedArray {
         let shape = self.shape().unwrap();
         let dim0: usize = shape[..axis].iter().product::<usize>().max(1);
         let dim1: usize = shape[axis..].iter().product::<usize>().max(1);
-        let out_shape = IxDyn(&[dim0, dim1]);
-        macro_rules! flatten_typed {
-        ($(($variant:ident, $T:ty)),+) => {
-            match (self, &mut *o) {
-                $(
-                    (TypedArray::$variant(in_arr), TypedArray::$variant(out_arr)) => {
-                        if out_arr.len() != dim0 * dim1 {
-                            *out_arr = ArrayD::<$T>::zeros(out_shape);
-                        } else if out_arr.shape() != out_shape.as_array_view().as_slice().unwrap() {
-                            *out_arr = out_arr.clone().into_shape_with_order(out_shape).unwrap();
-                        }
+        let out_shape = [dim0, dim1];
 
-                        let out_slice = out_arr.as_slice_memory_order_mut().unwrap();
-                        let in_slice = in_arr.as_slice_memory_order().unwrap();
-
-                        out_slice.copy_from_slice(in_slice);
-
-                        Ok(())
-                    }
-                )+
-                (TypedArray::Bool(in_arr), TypedArray::Bool(out_arr)) => {
-                    if out_arr.len() != dim0 * dim1 {
-                        *out_arr = ArrayD::<bool>::from_elem(out_shape, false);
-                    } else if out_arr.shape() != out_shape.as_array_view().as_slice().unwrap() {
-                        *out_arr = out_arr.clone().into_shape_with_order(out_shape).unwrap();
-                    }
-
-                    let out_slice = out_arr.as_slice_memory_order_mut().unwrap();
-                    let in_slice = in_arr.as_slice_memory_order().unwrap();
-
-                    out_slice.copy_from_slice(in_slice);
-
-                    Ok(())
+        macro_rules! flatten_variant {
+            ($variant:ident, $a:expr) => {{
+                let needs_alloc = match &*o {
+                    TypedArray::$variant(out) => out.shape() != out_shape,
+                    _ => true,
+                };
+                if needs_alloc {
+                    *o = TypedArray::$variant(ArrayD::zeros(IxDyn(&out_shape)));
                 }
-                _ => anyhow::bail!("Flatten: input and output must have the same type"),
-            }
-        };
-    }
+                if let TypedArray::$variant(out) = o {
+                    let dst = out.as_slice_memory_order_mut().unwrap();
+                    let src = $a.as_slice_memory_order().unwrap();
+                    dst.copy_from_slice(src);
+                }
+            }};
+        }
 
-        flatten_typed!(
-            (Float, f32),
-            (Double, f64),
-            (Int8, i8),
-            (Int16, i16),
-            (Int32, i32),
-            (Int64, i64),
-            (Uint8, u8),
-            (Uint16, u16),
-            (Uint32, u32),
-            (Uint64, u64)
-        )
+        macro_rules! call_flatten_for_typed_array {
+            ([$($variant:ident),+]) => {
+
+                match self {
+                    $(
+                        TypedArray::$variant(a) => flatten_variant!($variant, a),
+                    )+
+                    TypedArray::Bool(a) => {
+                        let needs_alloc = match &*o {
+                            TypedArray::Bool(out) => out.shape() != out_shape,
+                            _ => true,
+                        };
+                        if needs_alloc {
+                            *o = TypedArray::Bool(ArrayD::from_elem(IxDyn(&out_shape), false));
+                        }
+                        if let TypedArray::Bool(out) = o {
+                            let dst = out.as_slice_memory_order_mut().unwrap();
+                            let src = a.as_slice_memory_order().unwrap();
+                            dst.copy_from_slice(src);
+                        }
+                    }
+                    _ => anyhow::bail!("Flatten: unsupported type"),
+                }
+            };
+        }
+
+        call_flatten_for_typed_array!([
+            Double, Float, Int16, Int32, Int64, Int8, Uint16, Uint32, Uint64, Uint8
+        ]);
+
+        Ok(())
     }
 }

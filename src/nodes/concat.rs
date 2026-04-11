@@ -1,13 +1,12 @@
-use std::{any::Any, collections::HashMap};
+use std::any::Any;
 
 use crate::{
-    call_concat_for_typed_array,
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
 use anyhow::{Ok, Result};
-use onnx_extractor::{AttributeValue, OnnxOperation};
+use onnx_extractor::OnnxOperation;
 
 #[derive(Default)]
 pub struct ConcatNode<T> {
@@ -127,22 +126,6 @@ impl<T: Default + 'static> Node<T> for ConcatNode<T> {
         }
     }
 
-    fn self_count(&self, count: usize) -> usize {
-        if let Some(next) = &self.next_node {
-            let mut ct = 0;
-            let mut sum = 0;
-            next.iter().for_each(|val| {
-                sum += val.self_count(ct);
-                ct += 1;
-            });
-            sum
-        } else {
-            count
-        }
-    }
-
-    
-
     fn determine_output_shape(&mut self, omap: &mut TensorMap) {
         let first_input = omap.get(&self.inputs[0]);
         let mut out_shape = Vec::new();
@@ -182,6 +165,34 @@ impl<T: Default + 'static> Node<T> for ConcatNode<T> {
             }
         }
     }
+}
+
+macro_rules! call_concat_for_typed_array {
+    ($first:expr, $arrays:expr, $axis:expr, $o:expr, [$($variant:ident),+]) => {
+        use ndarray::Axis;
+
+        match $first {
+            $(
+                TypedArray::$variant(_) => concat_variant!($variant, $arrays, $axis, $o),
+            )+
+            TypedArray::Undefined => return Err(anyhow::anyhow!("undefined type in concat")),
+            _ => return Err(anyhow::anyhow!("unsupported type for concat")),
+        }
+    };
+}
+
+macro_rules! concat_variant {
+    ($variant:ident, $arrays:expr, $axis:expr, $o:expr) => {{
+        let inner: anyhow::Result<Vec<_>> = $arrays
+            .iter()
+            .map(|a| match a {
+                TypedArray::$variant(arr) => Ok(arr.view()),
+                _ => Err(anyhow::anyhow!("type mismatch in concat")),
+            })
+            .collect();
+        *$o = TypedArray::$variant(ndarray::concatenate(Axis($axis), &inner?)?.into_dyn())
+            .ensure_contiguous();
+    }};
 }
 
 impl TypedArray {

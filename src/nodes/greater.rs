@@ -6,7 +6,6 @@ use crate::{
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
-use anyhow::Result;
 use onnx_extractor::OnnxOperation;
 
 #[derive(Default)]
@@ -102,22 +101,6 @@ impl<T: Default + 'static> Node<T> for GreaterNode<T> {
             next.iter().for_each(|v| v.print());
         }
     }
-
-    fn self_count(&self, count: usize) -> usize {
-        if let Some(next) = &self.next_node {
-            let mut ct = 0;
-            let mut sum = 0;
-            next.iter().for_each(|val| {
-                sum += val.self_count(ct);
-                ct += 1;
-            });
-            sum
-        } else {
-            count
-        }
-    }
-
-    
 
     fn determine_output_shape(&mut self, omap: &mut TensorMap) {
         let [x, o] = omap.get_disjoint_mut([&self.a, &self.o]);

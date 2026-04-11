@@ -81,25 +81,13 @@ impl<T: Default + 'static> Node<T> for ExpandNode<T> {
         let b = &*b.unwrap();
 
         match o {
-            Some(out) => {}
+            Some(out) => {
+                a.expand(b, out).unwrap();
+            }
             _ => panic!(
                 "ExpandNode: missing input(s) - a={} b={}",
                 self.input, self.shape
             ),
-        }
-    }
-
-    fn self_count(&self, count: usize) -> usize {
-        if let Some(next) = &self.next_node {
-            let mut ct = 0;
-            let mut sum = 0;
-            next.iter().for_each(|val| {
-                sum += val.self_count(ct);
-                ct += 1;
-            });
-            sum
-        } else {
-            count
         }
     }
 
@@ -117,13 +105,10 @@ impl<T: Default + 'static> Node<T> for ExpandNode<T> {
         }
     }
 
-    
-
     fn determine_output_shape(&mut self, omap: &mut TensorMap) {
         let [input, shape, o] = omap.get_disjoint_mut([&self.input, &self.shape, &self.o]);
         let input = input.map(|inner| &*inner);
         let shape = shape.map(|inner| &*inner);
-
         if let (Some(input), Some(shape), Some(o)) = (input, shape, o)
             && let Some(in_shape) = input.shape()
             && let TypedArray::Int64(target_arr) = shape
@@ -201,6 +186,18 @@ impl TypedArray {
             }
         }
 
+        macro_rules! call_expand_for_typed_array {
+            ([$($variant:ident),+]) => {
+
+                match self {
+                    $(
+                        TypedArray::$variant(a) => expand_variant!($variant, a),
+                    )+
+                    _ => anyhow::bail!("Expand: unsupported type"),
+                }
+            };
+        }
+
         macro_rules! expand_variant {
             ($variant:ident, $a:expr) => {{
                 use ndarray::IxDyn;
@@ -226,20 +223,9 @@ impl TypedArray {
             }};
         }
 
-        match self {
-            TypedArray::Float(a) => expand_variant!(Float, a),
-            TypedArray::Double(a) => expand_variant!(Double, a),
-            TypedArray::Int8(a) => expand_variant!(Int8, a),
-            TypedArray::Int16(a) => expand_variant!(Int16, a),
-            TypedArray::Int32(a) => expand_variant!(Int32, a),
-            TypedArray::Int64(a) => expand_variant!(Int64, a),
-            TypedArray::Uint8(a) => expand_variant!(Uint8, a),
-            TypedArray::Uint16(a) => expand_variant!(Uint16, a),
-            TypedArray::Uint32(a) => expand_variant!(Uint32, a),
-            TypedArray::Uint64(a) => expand_variant!(Uint64, a),
-            TypedArray::Bool(a) => expand_variant!(Bool, a),
-            _ => anyhow::bail!("Expand: unsupported type"),
-        }
+        call_expand_for_typed_array!([
+            Double, Float, Int16, Int32, Int64, Int8, Uint16, Uint32, Uint64, Uint8, Bool
+        ]);
 
         Ok(())
     }

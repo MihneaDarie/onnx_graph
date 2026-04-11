@@ -38,9 +38,17 @@ impl<T: Default> WhereNode<T> {
 
     pub fn broadcast_shape(shapes: &[&[usize]]) -> anyhow::Result<Vec<usize>> {
         let max_rank = shapes.iter().map(|s| s.len()).max().unwrap_or(0);
+
+        if max_rank == 0 {
+            return Ok(vec![]);
+        }
+
         let mut result = vec![1usize; max_rank];
 
         for shape in shapes {
+            if shape.is_empty() {
+                continue;
+            }
             let offset = max_rank - shape.len();
             for (i, &dim) in shape.iter().enumerate() {
                 let r = &mut result[offset + i];
@@ -84,15 +92,15 @@ impl<T: Default + 'static> Node<T> for WhereNode<T> {
 
     fn execute(&self, omap: &mut TensorMap) {
         let [c, x, y, o] = omap.get_disjoint_mut([&self.c, &self.x, &self.y, &self.o]);
-        let c = c.map(|inner| &*inner);
-        let x = x.map(|inner| &*inner);
-        let y = y.map(|inner| &*inner);
-
-        match (c, x, y, o) {
-            (Some(c), Some(x), Some(y), Some(result)) => {
-                TypedArray::where_op(c, x, y, result).unwrap();
+        let c = &*c.unwrap();
+        let x = &*x.unwrap();
+        let y = &*y.unwrap();
+        if self.o == "/model/layers.0/self_attn/Where_2" {}
+        match o {
+            Some(out) => {
+                TypedArray::where_op(c, x, y, out).unwrap();
             }
-            _ => panic!("WhereNode: missing input {}", self.x),
+            _ => panic!("WhereNode: missing output {}", self.o),
         }
     }
 
@@ -125,32 +133,21 @@ impl<T: Default + 'static> Node<T> for WhereNode<T> {
         }
     }
 
-    fn self_count(&self, count: usize) -> usize {
-        if let Some(next) = &self.next_node {
-            let mut ct = 0;
-            let mut sum = 0;
-            next.iter().for_each(|val| {
-                sum += val.self_count(ct);
-                ct += 1;
-            });
-            sum
-        } else {
-            count
-        }
-    }
-
-    
-
     fn determine_output_shape(&mut self, omap: &mut TensorMap) {
         let [c, x, y, o] = omap.get_disjoint_mut([&self.c, &self.x, &self.y, &self.o]);
         let c = c.map(|arr| &*arr);
         let y = y.map(|arr| &*arr);
         let x = x.map(|arr| &*arr);
+
         if let (Some(c), Some(x), Some(y), Some(o)) = (c, x, y, o)
             && let (Some(c_shape), Some(x_shape), Some(y_shape)) = (c.shape(), x.shape(), y.shape())
         {
-            let out_shape = Self::broadcast_shape(&[c_shape, x_shape, y_shape]).unwrap();
-            *o = TypedArray::empty_with_others_type(x, &out_shape);
+            match Self::broadcast_shape(&[c_shape, x_shape, y_shape]) {
+                Ok(out_shape) => {
+                    *o = TypedArray::empty_with_others_type(x, &out_shape);
+                }
+                Err(_) => {}
+            }
         }
 
         if let Some(list) = &mut self.next_node {
@@ -160,6 +157,9 @@ impl<T: Default + 'static> Node<T> for WhereNode<T> {
         }
     }
 }
+
+use ndarray::ArrayD;
+use ndarray::IxDyn;
 
 impl TypedArray {
     pub fn where_op(
@@ -173,89 +173,56 @@ impl TypedArray {
             _ => anyhow::bail!("Where: condition must be Bool"),
         };
 
+        let out_shape = WhereNode::<f32>::broadcast_shape(&[
+            cond.shape(),
+            x.shape().unwrap_or(&[]),
+            y.shape().unwrap_or(&[]),
+        ])?;
+
+        macro_rules! ensure_alloc {
+            ($variant:ident) => {{
+                let needs_alloc = match &*output {
+                    TypedArray::$variant(out) => out.shape() != out_shape.as_slice(),
+                    _ => true,
+                };
+                if needs_alloc {
+                    *output = TypedArray::$variant(ArrayD::zeros(IxDyn(&out_shape)));
+                }
+            }};
+        }
+
+        match x {
+            TypedArray::Float(_) => ensure_alloc!(Float),
+            TypedArray::Double(_) => ensure_alloc!(Double),
+            TypedArray::Int8(_) => ensure_alloc!(Int8),
+            TypedArray::Int16(_) => ensure_alloc!(Int16),
+            TypedArray::Int32(_) => ensure_alloc!(Int32),
+            TypedArray::Int64(_) => ensure_alloc!(Int64),
+            TypedArray::Uint8(_) => ensure_alloc!(Uint8),
+            TypedArray::Uint16(_) => ensure_alloc!(Uint16),
+            TypedArray::Uint32(_) => ensure_alloc!(Uint32),
+            TypedArray::Uint64(_) => ensure_alloc!(Uint64),
+            TypedArray::Bool(_) => {
+                let needs_alloc = match &*output {
+                    TypedArray::Bool(out) => out.shape() != out_shape.as_slice(),
+                    _ => true,
+                };
+                if needs_alloc {
+                    *output = TypedArray::Bool(ArrayD::from_elem(IxDyn(&out_shape), false));
+                }
+            }
+            _ => anyhow::bail!("Where: unsupported type"),
+        }
+
         macro_rules! where_typed {
-            ($(($variant:ident, $T:ty)),+) => {
-                match (x, y, output) {
-                    $(
-                        (
-                            TypedArray::$variant(x_arr),
-                            TypedArray::$variant(y_arr),
-                            TypedArray::$variant(out_arr),
-                        ) => {
-                            use ndarray::IxDyn;
-                            use rayon::iter::IndexedParallelIterator;
-                            use rayon::iter::IntoParallelRefIterator;
-                            use rayon::iter::IntoParallelRefMutIterator;
-                            use rayon::iter::ParallelIterator;
-
-                            let out_shape = WhereNode::<f32>::broadcast_shape(&[
-                                cond.shape(),
-                                x_arr.shape(),
-                                y_arr.shape(),
-                            ])?;
-
-                            if out_arr.shape() != out_shape.as_slice() {
-                                anyhow::bail!("Output shape mismatch");
-                            }
-
-                            let no_broadcast =
-                                cond.shape() == out_shape.as_slice()
-                                && x_arr.shape() == out_shape.as_slice()
-                                && y_arr.shape() == out_shape.as_slice();
-
-                            if no_broadcast {
-                                let out_slice = out_arr.as_slice_memory_order_mut().unwrap();
-                                let c_slice = cond.as_slice_memory_order().unwrap();
-                                let x_slice = x_arr.as_slice_memory_order().unwrap();
-                                let y_slice = y_arr.as_slice_memory_order().unwrap();
-
-                                out_slice
-                                    .par_iter_mut()
-                                    .zip(c_slice.par_iter())
-                                    .zip(x_slice.par_iter())
-                                    .zip(y_slice.par_iter())
-                                    .for_each(|(((o, c), xv), yv)| {
-                                        *o = if *c { *xv } else { *yv };
-                                    });
-                            } else {
-                                let cond_b = cond.broadcast(IxDyn(&out_shape)).unwrap();
-                                let x_b = x_arr.broadcast(IxDyn(&out_shape)).unwrap();
-                                let y_b = y_arr.broadcast(IxDyn(&out_shape)).unwrap();
-
-                                ndarray::Zip::from(out_arr)
-                                    .and(&cond_b)
-                                    .and(&x_b)
-                                    .and(&y_b)
-                                    .par_for_each(|o, c, xv, yv| {
-                                        *o = if *c { *xv } else { *yv };
-                                    });
-                            }
-
-                            Ok(())
-                        }
-                    )+
-
+        ($(($variant:ident, $T:ty)),+) => {
+            match (x, y, output) {
+                $(
                     (
-                        TypedArray::Bool(x_arr),
-                        TypedArray::Bool(y_arr),
-                        TypedArray::Bool(out_arr),
+                        TypedArray::$variant(x_arr),
+                        TypedArray::$variant(y_arr),
+                        TypedArray::$variant(out_arr),
                     ) => {
-                        use ndarray::IxDyn;
-                        use rayon::iter::IndexedParallelIterator;
-                        use rayon::iter::IntoParallelRefIterator;
-                        use rayon::iter::IntoParallelRefMutIterator;
-                        use rayon::iter::ParallelIterator;
-
-                        let out_shape = WhereNode::<f32>::broadcast_shape(&[
-                            cond.shape(),
-                            x_arr.shape(),
-                            y_arr.shape(),
-                        ])?;
-
-                        if out_arr.shape() != out_shape.as_slice() {
-                            anyhow::bail!("Output shape mismatch");
-                        }
-
                         let no_broadcast =
                             cond.shape() == out_shape.as_slice()
                             && x_arr.shape() == out_shape.as_slice()
@@ -267,11 +234,10 @@ impl TypedArray {
                             let x_slice = x_arr.as_slice_memory_order().unwrap();
                             let y_slice = y_arr.as_slice_memory_order().unwrap();
 
-                            out_slice
-                                .par_iter_mut()
-                                .zip(c_slice.par_iter())
-                                .zip(x_slice.par_iter())
-                                .zip(y_slice.par_iter())
+                            out_slice.iter_mut()
+                                .zip(c_slice.iter())
+                                .zip(x_slice.iter())
+                                .zip(y_slice.iter())
                                 .for_each(|(((o, c), xv), yv)| {
                                     *o = if *c { *xv } else { *yv };
                                 });
@@ -284,18 +250,17 @@ impl TypedArray {
                                 .and(&cond_b)
                                 .and(&x_b)
                                 .and(&y_b)
-                                .par_for_each(|o, c, xv, yv| {
+                                .for_each(|o, c, xv, yv| {
                                     *o = if *c { *xv } else { *yv };
                                 });
                         }
-
                         Ok(())
                     }
-
-                    _ => anyhow::bail!("Where: type mismatch"),
-                }
-            };
-        }
+                )+
+                _ => anyhow::bail!("Where: type mismatch between x, y, and output"),
+            }
+        };
+    }
 
         where_typed!(
             (Float, f32),
@@ -307,7 +272,8 @@ impl TypedArray {
             (Uint8, u8),
             (Uint16, u16),
             (Uint32, u32),
-            (Uint64, u64)
+            (Uint64, u64),
+            (Bool, bool)
         )
     }
 }

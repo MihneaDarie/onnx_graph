@@ -3,14 +3,14 @@ use std::fmt::Display;
 
 use crate::nodes::conv::Conv2D;
 use crate::{
-    discriminant_macro, fix_if_not_contignous, from_shape_vec_from_datatype, len_macro, shape_macro, zeros_from_datatype, zeros_from_discriminants, zeros_from_others_type
+    discriminant_macro, fix_if_not_contignous, from_shape_vec_from_datatype, len_macro,
+    matches_datatype, shape_macro, zeros_from_datatype, zeros_from_discriminants,
+    zeros_from_others_type,
 };
 use anyhow::Ok;
 use ndarray::{ArrayD, ArrayView1, IxDyn};
 use ndarray::{ArrayView4, ArrayViewMut4};
 use onnx_extractor::{DataType, OnnxTensor};
-use rayon::iter::IntoParallelRefIterator;
-use rayon::iter::IntoParallelRefMutIterator;
 use rayon::iter::ParallelIterator;
 use rayon::{iter::IndexedParallelIterator, slice::ParallelSliceMut};
 use saker_rs::activations::Activation;
@@ -59,9 +59,43 @@ pub enum TypedArrayDiscriminants {
 }
 
 impl TypedArray {
+    pub fn broadcast_shape(shapes: &[&[usize]]) -> anyhow::Result<Vec<usize>> {
+        let max_rank = shapes.iter().map(|s| s.len()).max().unwrap_or(0);
+        if max_rank == 0 {
+            return Ok(vec![]);
+        }
+        let mut result = vec![1usize; max_rank];
+        for shape in shapes {
+            if shape.is_empty() {
+                continue;
+            }
+            let offset = max_rank - shape.len();
+            for (i, &dim) in shape.iter().enumerate() {
+                let r = &mut result[offset + i];
+                if *r == 1 {
+                    *r = dim;
+                } else if dim != 1 && dim != *r {
+                    anyhow::bail!("incompatible broadcast dimensions {} vs {}", *r, dim);
+                }
+            }
+        }
+        Ok(result)
+    }
+
     pub fn discriminatn(&self) -> String {
         discriminant_macro!(
             self,
+            [
+                Float, Uint8, Int8, Uint16, Int16, Int32, Int64, String, Bool, Double, Uint32,
+                Uint64
+            ]
+        )
+    }
+
+    pub fn matches_datatype(&self, to: DataType) -> bool {
+        matches_datatype!(
+            self,
+            to,
             [
                 Float, Uint8, Int8, Uint16, Int16, Int32, Int64, String, Bool, Double, Uint32,
                 Uint64

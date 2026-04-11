@@ -58,7 +58,7 @@ use saker_rs::activations::Activation;
 pub struct GraphForm<T: Default> {
     inputs: Vec<String>,
     // nodes: Vec<Box<dyn Node<T>>>,
-    nodes: Option<Vec<Box<dyn Node<T>>>>,
+    pub nodes: Option<Vec<Box<dyn Node<T>>>>,
 }
 
 impl<T: Default + 'static> GraphForm<T> {
@@ -83,17 +83,11 @@ impl<T: Default + 'static> GraphForm<T> {
         }
     }
 
-    pub fn self_count(&self, count: usize) -> usize {
-        if let Some(next) = &self.nodes {
-            let mut ct = 0;
-            let mut sum = 0;
-            next.iter().for_each(|val| {
-                sum += val.self_count(ct);
-                ct += 1;
-            });
-            sum
+    pub fn self_count(&self) -> usize {
+        if let Some(nodes) = &self.nodes {
+            nodes.iter().map(|n| n.self_count()).sum()
         } else {
-            count
+            0
         }
     }
 
@@ -231,11 +225,6 @@ impl<T: Default + 'static> GraphForm<T> {
             ret.insert(Self::get_specifc_node_from_operation(elem, &mut map)?);
         }
 
-        if let Some(start) = &mut ret.nodes {
-            for next in start {
-                next.determine_output_shape(&mut map);
-            }
-        }
         Ok((ret, map))
     }
 
@@ -262,11 +251,10 @@ impl<T: Default + 'static> GraphForm<T> {
             if !self.inputs.contains(&String::from(name)) {
                 println!("!!! No such input called {name} !!!");
             }
-            let inp = omap.get_mut(name);
-            match inp {
-                Some(input) => *input = TypedArray::empty_from_discriminant(discriminant, shape),
-                None => {}
-            }
+            omap.insert(
+                name.to_string(),
+                TypedArray::empty_from_discriminant(discriminant, shape).ensure_contiguous(),
+            );
         }
 
         if let Some(start) = &mut self.nodes {
@@ -326,7 +314,6 @@ impl<T: Default + 'static> GraphForm<T> {
             for node in nodes {
                 pass_node(node.as_ref(), omap);
             }
-            // nodes.iter().for_each(|val| val.pass(omap));
         }
     }
 }

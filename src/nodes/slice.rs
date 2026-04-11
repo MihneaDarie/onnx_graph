@@ -1,12 +1,10 @@
-use std::{any::Any, collections::HashMap};
+use std::any::Any;
 
 use crate::{
-    call_slice_for_typed_array,
     nodes::{node::Node, unique_ids::UniqueId},
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
-use anyhow::Result;
 use onnx_extractor::OnnxOperation;
 
 #[derive(Default)]
@@ -128,22 +126,6 @@ impl<T: Default + 'static> Node<T> for SliceNode<T> {
         }
     }
 
-    fn self_count(&self, count: usize) -> usize {
-        if let Some(next) = &self.next_node {
-            let mut ct = 0;
-            let mut sum = 0;
-            next.iter().for_each(|val| {
-                sum += val.self_count(ct);
-                ct += 1;
-            });
-            sum
-        } else {
-            count
-        }
-    }
-
-    
-
     fn determine_output_shape(&mut self, omap: &mut TensorMap) {
         let [data, starts, ends, axes, o] =
             omap.get_disjoint_mut([&self.data, &self.starts, &self.ends, &self.axes, &self.o]);
@@ -196,6 +178,144 @@ impl<T: Default + 'static> Node<T> for SliceNode<T> {
             }
         }
     }
+}
+
+macro_rules! call_slice_for_typed_array {
+    ($self:expr, $axes:expr, $starts:expr, $ends:expr, $o:expr, [$($variant:ident),+]) => {
+        use ndarray::IxDyn;
+
+        match $self {
+            $(
+                TypedArray::$variant(a) => slice_variant!($variant, $axes, $starts, $ends, a, $o),
+            )+
+            TypedArray::Bool(a) => {
+                use ndarray::ArrayD;
+                let ndim = a.ndim();
+                let mut slice_info: Vec<ndarray::SliceInfoElem> = (0..ndim)
+                    .map(|_| ndarray::SliceInfoElem::Slice {
+                        start: 0,
+                        end: None,
+                        step: 1,
+                    })
+                    .collect();
+
+                let mut out_shape = a.shape().to_vec();
+
+                for i in 0..$axes.len() {
+                    let axis = $axes[i] as usize;
+                    let dim_size = a.shape()[axis] as i64;
+
+                    let start = {
+                        let s = $starts[i];
+                        if s < 0 {
+                            (dim_size + s).max(0)
+                        } else {
+                            s.min(dim_size)
+                        }
+                    } as usize;
+
+                    let end = {
+                        let e = $ends[i];
+                        if e < 0 {
+                            (dim_size + e).max(0)
+                        } else {
+                            e.min(dim_size)
+                        }
+                    } as usize;
+
+                    out_shape[axis] = end - start;
+
+                    slice_info[axis] = ndarray::SliceInfoElem::Slice {
+                        start: start as isize,
+                        end: Some(end as isize),
+                        step: 1,
+                    };
+                }
+
+                let needs_alloc = match &*$o {
+                    TypedArray::Bool(out) => out.shape() != out_shape.as_slice(),
+                    _ => true,
+                };
+                if needs_alloc {
+                    *$o = TypedArray::Bool(ArrayD::from_elem(IxDyn(&out_shape), false));
+                }
+
+                let view = a.slice(ndarray::SliceInfo::<_, IxDyn, IxDyn>::try_from(slice_info)?);
+
+                if let TypedArray::Bool(out) = $o {
+                    let dst = out.as_slice_memory_order_mut().unwrap();
+                    for (d, s) in dst.iter_mut().zip(view.iter()) {
+                        *d = *s;
+                    }
+                }
+            }
+            _ => return Err(anyhow::anyhow!("unsupported type for slice")),
+        }
+    };
+}
+
+macro_rules! slice_variant {
+    ($variant:ident, $axes:expr, $starts:expr, $ends:expr, $a:expr, $o:expr) => {{
+        use ndarray::ArrayD;
+        let ndim = $a.ndim();
+        let mut slice_info: Vec<ndarray::SliceInfoElem> = (0..ndim)
+            .map(|_| ndarray::SliceInfoElem::Slice {
+                start: 0,
+                end: None,
+                step: 1,
+            })
+            .collect();
+
+        let mut out_shape = $a.shape().to_vec();
+
+        for i in 0..$axes.len() {
+            let axis = $axes[i] as usize;
+            let dim_size = $a.shape()[axis] as i64;
+
+            let start = {
+                let s = $starts[i];
+                if s < 0 {
+                    (dim_size + s).max(0)
+                } else {
+                    s.min(dim_size)
+                }
+            } as usize;
+
+            let end = {
+                let e = $ends[i];
+                if e < 0 {
+                    (dim_size + e).max(0)
+                } else {
+                    e.min(dim_size)
+                }
+            } as usize;
+
+            out_shape[axis] = end - start;
+
+            slice_info[axis] = ndarray::SliceInfoElem::Slice {
+                start: start as isize,
+                end: Some(end as isize),
+                step: 1,
+            };
+        }
+
+        let needs_alloc = match &*$o {
+            TypedArray::$variant(out) => out.shape() != out_shape.as_slice(),
+            _ => true,
+        };
+        if needs_alloc {
+            *$o = TypedArray::$variant(ArrayD::zeros(IxDyn(&out_shape)));
+        }
+
+        let view = $a.slice(ndarray::SliceInfo::<_, IxDyn, IxDyn>::try_from(slice_info)?);
+
+        if let TypedArray::$variant(out) = $o {
+            let dst = out.as_slice_memory_order_mut().unwrap();
+            for (d, s) in dst.iter_mut().zip(view.iter()) {
+                *d = *s;
+            }
+        }
+    }};
 }
 
 impl TypedArray {

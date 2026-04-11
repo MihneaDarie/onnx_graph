@@ -1,13 +1,8 @@
 use std::{any::Any, collections::HashMap};
 
 use anyhow::{Ok, Result};
-use onnx_extractor::OnnxOperation;
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
-use crate::{
-    nodes::unique_ids::UniqueId,
-    tensor_map::{TensorMap, UnsafeSendMut},
-};
+use crate::{nodes::unique_ids::UniqueId, tensor_map::TensorMap, typed_array::TypedArray};
 
 pub trait Node<T: Default + 'static>: Send + Sync {
     fn execute(&self, omap: &mut TensorMap);
@@ -15,7 +10,16 @@ pub trait Node<T: Default + 'static>: Send + Sync {
     fn determine_output_shape(&mut self, omap: &mut TensorMap);
 
     fn print(&self);
-    fn self_count(&self, count: usize) -> usize;
+
+    fn self_count(&self) -> usize {
+        let mut count = 1;
+        if let Some(children) = &self.get_next() {
+            for child in children.iter() {
+                count += child.self_count();
+            }
+        }
+        count
+    }
 
     fn get_next(&self) -> Option<&Vec<Box<dyn Node<T>>>>;
     fn get_next_mut(&mut self) -> Option<&mut Vec<Box<dyn Node<T>>>>;

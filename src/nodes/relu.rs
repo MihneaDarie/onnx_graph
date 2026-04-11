@@ -84,22 +84,6 @@ impl<T: Default + 'static> Node<T> for ReluNode<T> {
         self.next_node.as_ref()
     }
 
-    fn self_count(&self, count: usize) -> usize {
-        if let Some(next) = &self.next_node {
-            let mut ct = 0;
-            let mut sum = 0;
-            next.iter().for_each(|val| {
-                sum += val.self_count(ct);
-                ct += 1;
-            });
-            sum
-        } else {
-            count
-        }
-    }
-
-    
-
     fn output_names(&self) -> Vec<String> {
         vec![self.o.clone()]
     }

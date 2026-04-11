@@ -1,13 +1,12 @@
-use std::{any::Any, collections::HashMap};
+use std::any::Any;
 
 use crate::{
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
-    softmax_variant,
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
 use anyhow::Result;
-use onnx_extractor::{AttributeValue, OnnxOperation};
+use onnx_extractor::OnnxOperation;
 
 #[derive(Default)]
 pub struct SoftMaxNode<T: Default> {
@@ -121,22 +120,6 @@ impl<T: Default + 'static> Node<T> for SoftMaxNode<T> {
         }
     }
 
-    fn self_count(&self, count: usize) -> usize {
-        if let Some(next) = &self.next_node {
-            let mut ct = 0;
-            let mut sum = 0;
-            next.iter().for_each(|val| {
-                sum += val.self_count(ct);
-                ct += 1;
-            });
-            sum
-        } else {
-            count
-        }
-    }
-
-    
-
     fn determine_output_shape(&mut self, omap: &mut TensorMap) {
         let [x, o] = omap.get_disjoint_mut([&self.input, &self.o]);
         let x = x.map(|arr| &*arr);
@@ -154,6 +137,43 @@ impl<T: Default + 'static> Node<T> for SoftMaxNode<T> {
         }
     }
 }
+
+macro_rules! softmax_variant {
+    ($variant:ident, $axis:expr, $a:expr, $o:expr, $T:ty) => {{
+        use ndarray::ArrayD;
+        use ndarray::Axis;
+        use ndarray::IxDyn;
+
+        let ndim = $a.ndim() as i64;
+        let axis = if $axis < 0 {
+            (ndim + $axis) as usize
+        } else {
+            $axis as usize
+        };
+
+        let needs_alloc = match &*$o {
+            TypedArray::$variant(out) => out.shape() != $a.shape(),
+            _ => true,
+        };
+        if needs_alloc {
+            *$o = TypedArray::$variant(ArrayD::zeros(IxDyn($a.shape())));
+        }
+
+        if let TypedArray::$variant(out) = $o {
+            let dst = out.as_slice_memory_order_mut().unwrap();
+            let src = $a.as_slice_memory_order().unwrap();
+            dst.copy_from_slice(src);
+
+            for mut lane in out.lanes_mut(Axis(axis)) {
+                let max = lane.iter().copied().fold(<$T>::NEG_INFINITY, <$T>::max);
+                lane.mapv_inplace(|x| (x - max).exp());
+                let sum: $T = lane.iter().sum();
+                lane.mapv_inplace(|x| x / sum);
+            }
+        }
+    }};
+}
+
 impl TypedArray {
     pub fn softmax(&self, axis: i64, o: &mut TypedArray) -> anyhow::Result<()> {
         match self {
