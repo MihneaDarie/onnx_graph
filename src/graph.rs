@@ -19,6 +19,7 @@ use crate::{
         greater::GreaterNode,
         greater_or_equal::GreaterOrEqualNode,
         is_nan::IsNanNode,
+        leaky_relu::LeakyReluNode,
         less::LessNode,
         less_or_equal::LessOrEqualNode,
         mat_mul::MatMulNode,
@@ -174,6 +175,7 @@ impl<T: Default + 'static> GraphForm<T> {
 
             "Sigmoid" => Box::new(SigmoidNode::new(elem)),
             "Relu" => Box::new(ReluNode::new(elem)),
+            "LeakyRelu" => Box::new(LeakyReluNode::from_onnx_operation(elem)?),
 
             "Sub" => Box::new(SubNode::new(elem)),
             "Add" => Box::new(AddNode::new(elem)),

@@ -97,7 +97,7 @@ impl<T: Default + 'static> Node<T> for DivNode<T> {
                         let a_sl = a_arr.as_slice_memory_order().unwrap();
                         let b_sl = b_arr.as_slice_memory_order().unwrap();
                         let dst = o_arr.as_slice_memory_order_mut().unwrap();
-                        div_maybe_simd(a_sl, b_sl, dst, a_sl.len());
+                        div_maybe_simd(a_sl, b_sl, dst);
                     } else {
                         a.div(b, out).unwrap();
                     }

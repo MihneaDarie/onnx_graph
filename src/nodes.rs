@@ -15,6 +15,7 @@ pub mod node;
 pub mod onnx_operation_trait;
 pub mod pow;
 pub mod relu;
+pub mod leaky_relu;
 pub mod reshape;
 pub mod resize;
 pub mod shape;

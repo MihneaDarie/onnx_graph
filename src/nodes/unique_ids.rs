@@ -49,6 +49,7 @@ pub enum UniqueId {
     Sigmoid,
     Silu,
     Relu,
+    LeakyRelu,
 
     #[default]
     Undefined,
