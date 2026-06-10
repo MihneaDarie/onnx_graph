@@ -28,8 +28,8 @@ impl<T: Default> NegNode<T> {
             unique_id: UniqueId::Neg,
             next_node: None,
         };
-        neg.add_input_strings(elem.inputs[0].clone());
-        neg.add_output_strings(elem.outputs[0].clone());
+        neg.add_input_strings(elem.inputs()[0].clone());
+        neg.add_output_strings(elem.outputs()[0].clone());
         neg
     }
 

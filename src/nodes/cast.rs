@@ -23,7 +23,7 @@ pub struct CastNode<T: Default> {
 
 impl<T: Default> FromOnnxOperation for CastNode<T> {
     fn from_onnx_operation(elem: &OnnxOperation) -> Result<Self> {
-        let attrs = &elem.attributes;
+        let attrs = &elem.attributes();
         let to = attrs
             .get("to")
             .and_then(|v| v.as_int().map(|val| DataType::from_onnx_type(val as i32)));
@@ -34,8 +34,8 @@ impl<T: Default> FromOnnxOperation for CastNode<T> {
             unique_id: UniqueId::Cast,
             next_node: None,
         };
-        cast.add_input_strings(elem.inputs[0].clone());
-        cast.add_output_strings(elem.outputs[0].clone());
+        cast.add_input_strings(elem.inputs()[0].clone());
+        cast.add_output_strings(elem.outputs()[0].clone());
         Ok(cast)
     }
 }

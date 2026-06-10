@@ -54,7 +54,7 @@ pub struct MaxPoolNode<T: Default> {
 
 impl<T: Default> FromOnnxOperation for MaxPoolNode<T> {
     fn from_onnx_operation(elem: &OnnxOperation) -> anyhow::Result<Self> {
-        let attrs = &elem.attributes;
+        let attrs = &elem.attributes();
         let mut max_pool = Self {
             x: String::new(),
             o: String::new(),
@@ -126,8 +126,8 @@ impl<T: Default> FromOnnxOperation for MaxPoolNode<T> {
             unique_id: UniqueId::MaxPool,
             next_node: None,
         };
-        max_pool.add_input_strings(elem.inputs[0].clone());
-        max_pool.add_output_strings(elem.outputs[0].clone());
+        max_pool.add_input_strings(elem.inputs()[0].clone());
+        max_pool.add_output_strings(elem.outputs()[0].clone());
 
         Ok(max_pool)
     }

@@ -25,7 +25,7 @@ pub struct SplitNode<T: Default> {
 
 impl<T: Default> FromOnnxOperation for SplitNode<T> {
     fn from_onnx_operation(elem: &OnnxOperation) -> Result<Self> {
-        let attrs = &elem.attributes;
+        let attrs = &elem.attributes();
         let mut split = Self {
             input: String::new(),
             split: String::new(),
@@ -45,8 +45,8 @@ impl<T: Default> FromOnnxOperation for SplitNode<T> {
             next_node: None,
         };
 
-        split.add_input_strings(elem.inputs[0].clone(), elem.inputs[1].clone());
-        split.add_output_strings(elem.outputs.clone());
+        split.add_input_strings(elem.inputs()[0].clone(), elem.inputs()[1].clone());
+        split.add_output_strings(elem.outputs().to_vec());
 
         Ok(split)
     }

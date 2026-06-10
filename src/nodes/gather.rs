@@ -24,7 +24,7 @@ pub struct GatherNode<T: Default> {
 
 impl<T: Default> FromOnnxOperation for GatherNode<T> {
     fn from_onnx_operation(elem: &OnnxOperation) -> Result<Self> {
-        let attrs = &elem.attributes;
+        let attrs = &elem.attributes();
         let mut gather = Self {
             data: String::new(),
             indices: String::new(),
@@ -33,8 +33,8 @@ impl<T: Default> FromOnnxOperation for GatherNode<T> {
             unique_id: UniqueId::Gather,
             next_node: None,
         };
-        gather.add_input_strings(elem.inputs[0].clone(), elem.inputs[1].clone());
-        gather.add_output_strings(elem.outputs[0].clone());
+        gather.add_input_strings(elem.inputs()[0].clone(), elem.inputs()[1].clone());
+        gather.add_output_strings(elem.outputs()[0].clone());
         Ok(gather)
     }
 }

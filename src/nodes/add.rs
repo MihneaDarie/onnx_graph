@@ -32,8 +32,8 @@ impl<T: Default> AddNode<T> {
             unique_id: UniqueId::Add,
             next_node: None,
         };
-        add.add_input_strings(elem.inputs[0].clone(), elem.inputs[1].clone());
-        add.add_output_strings(elem.outputs[0].clone());
+        add.add_input_strings(elem.inputs()[0].clone(), elem.inputs()[1].clone());
+        add.add_output_strings(elem.outputs()[0].clone());
         add
     }
 

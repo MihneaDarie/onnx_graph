@@ -25,7 +25,7 @@ pub struct LeakyReluNode<T: Default> {
 impl<T: Default> FromOnnxOperation for LeakyReluNode<T> {
     fn from_onnx_operation(elem: &OnnxOperation) -> anyhow::Result<Self> {
         let alpha = elem
-            .attributes
+            .attributes()
             .get("alpha")
             .and_then(|val| val.as_float())
             .unwrap_or_else(|| 0.01f32);
@@ -37,8 +37,8 @@ impl<T: Default> FromOnnxOperation for LeakyReluNode<T> {
             unique_id: UniqueId::LeakyRelu,
             next_node: None,
         };
-        leaky_relu.add_input_strings(elem.inputs[0].clone());
-        leaky_relu.add_output_strings(elem.outputs[0].clone());
+        leaky_relu.add_input_strings(elem.inputs()[0].clone());
+        leaky_relu.add_output_strings(elem.outputs()[0].clone());
 
         Ok(leaky_relu)
     }
@@ -53,8 +53,8 @@ impl<T: Default> LeakyReluNode<T> {
             unique_id: UniqueId::LeakyRelu,
             next_node: None,
         };
-        leaky_relu.add_input_strings(elem.inputs[0].clone());
-        leaky_relu.add_output_strings(elem.outputs[0].clone());
+        leaky_relu.add_input_strings(elem.inputs()[0].clone());
+        leaky_relu.add_output_strings(elem.outputs()[0].clone());
         leaky_relu
     }
 

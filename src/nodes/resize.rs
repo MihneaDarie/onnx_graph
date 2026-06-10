@@ -125,8 +125,8 @@ pub struct ResizeNode<T: Default> {
 
 impl<T: Default> FromOnnxOperation for ResizeNode<T> {
     fn from_onnx_operation(elem: &OnnxOperation) -> Result<Self> {
-        let attrs = &elem.attributes;
-        let inputs = &elem.inputs;
+        let attrs = &elem.attributes();
+        let inputs = &elem.inputs();
         let roi = inputs.get(1).filter(|s| !s.is_empty()).cloned();
         let scales = inputs.get(2).filter(|s| !s.is_empty()).cloned();
         let sizes = inputs.get(3).filter(|s| !s.is_empty()).cloned();
@@ -189,7 +189,7 @@ impl<T: Default> FromOnnxOperation for ResizeNode<T> {
         };
 
         resize.add_input_strings(inputs[0].clone(), roi, scales, sizes);
-        resize.add_output_strings(elem.outputs[0].clone());
+        resize.add_output_strings(elem.outputs()[0].clone());
 
         Ok(resize)
     }

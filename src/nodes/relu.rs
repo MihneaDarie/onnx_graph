@@ -29,8 +29,8 @@ impl<T: Default> ReluNode<T> {
             unique_id: UniqueId::Relu,
             next_node: None,
         };
-        relu.add_input_strings(elem.inputs[0].clone());
-        relu.add_output_strings(elem.outputs[0].clone());
+        relu.add_input_strings(elem.inputs()[0].clone());
+        relu.add_output_strings(elem.outputs()[0].clone());
         relu
     }
 

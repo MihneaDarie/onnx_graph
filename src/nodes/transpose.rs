@@ -23,7 +23,7 @@ pub struct TransposeNode<T: Default> {
 
 impl<T: Default> FromOnnxOperation for TransposeNode<T> {
     fn from_onnx_operation(elem: &OnnxOperation) -> Result<Self> {
-        let attrs = &elem.attributes;
+        let attrs = &elem.attributes();
         let mut trans = Self {
             input: String::new(),
             o: String::new(),
@@ -34,8 +34,8 @@ impl<T: Default> FromOnnxOperation for TransposeNode<T> {
             unique_id: UniqueId::Transpose,
             next_node: None,
         };
-        trans.add_input_strings(elem.inputs[0].clone());
-        trans.add_output_strings(elem.outputs[0].clone());
+        trans.add_input_strings(elem.inputs()[0].clone());
+        trans.add_output_strings(elem.outputs()[0].clone());
         Ok(trans)
     }
 }

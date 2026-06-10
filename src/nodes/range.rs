@@ -33,8 +33,8 @@ impl<T: Default> RangeNode<T> {
             unique_id: UniqueId::Range,
             next_node: None,
         };
-        range.add_input_strings(&elem.inputs);
-        range.add_output_strings(elem.outputs[0].clone());
+        range.add_input_strings(&elem.inputs());
+        range.add_output_strings(elem.outputs()[0].clone());
         range
     }
 

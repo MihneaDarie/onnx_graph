@@ -29,8 +29,8 @@ impl<T: Default> ExpandNode<T> {
             unique_id: UniqueId::Expand,
             next_node: None,
         };
-        expand.add_input_strings(elem.inputs[0].clone(), elem.inputs[1].clone());
-        expand.add_output_strings(elem.outputs[0].clone());
+        expand.add_input_strings(elem.inputs()[0].clone(), elem.inputs()[1].clone());
+        expand.add_output_strings(elem.outputs()[0].clone());
         expand
     }
 

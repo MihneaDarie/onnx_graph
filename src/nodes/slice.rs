@@ -32,14 +32,14 @@ impl<T: Default> SliceNode<T> {
             unique_id: UniqueId::Slice,
             next_node: None,
         };
-        let input = &elem.inputs;
+        let input = &elem.inputs();
         slice.add_input_strings(
             input[0].clone(),
             input[1].clone(),
             input[2].clone(),
             input[3].clone(),
         );
-        slice.add_output_strings(elem.outputs[0].clone());
+        slice.add_output_strings(elem.outputs()[0].clone());
         slice
     }
     pub fn add_input_strings(&mut self, data: String, starts: String, ends: String, axes: String) {

@@ -137,6 +137,7 @@ macro_rules! from_shape_vec_from_datatype {
             $(
                 DataType::$variant => {
                         let vec = $data
+                                  .unwrap()
                                   .chunks_exact(std::mem::size_of::<$T>())
                                   .map(|b| <$T>::from_le_bytes(b.try_into().unwrap()))
                                   .collect::<Vec<$T>>();
@@ -144,7 +145,7 @@ macro_rules! from_shape_vec_from_datatype {
                 }
             )+
             DataType::Bool => {
-                let bools = $data.iter().map(|&b| b != 0).collect::<Vec<bool>>();
+                let bools = $data.unwrap().iter().map(|&b| b != 0).collect::<Vec<bool>>();
                     TypedArray::Bool(ArrayD::from_shape_vec($shape, bools).unwrap())
             }
             _ => TypedArray::Undefined,

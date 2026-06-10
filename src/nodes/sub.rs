@@ -31,8 +31,8 @@ impl<T: Default> SubNode<T> {
             unique_id: UniqueId::Sub,
             next_node: None,
         };
-        sub.add_input_strings(elem.inputs[0].clone(), elem.inputs[1].clone());
-        sub.add_output_strings(elem.outputs[0].clone());
+        sub.add_input_strings(elem.inputs()[0].clone(), elem.inputs()[1].clone());
+        sub.add_output_strings(elem.outputs()[0].clone());
         sub
     }
 

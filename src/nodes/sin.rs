@@ -28,8 +28,8 @@ impl<T: Default> SinNode<T> {
             unique_id: UniqueId::Sin,
             next_node: None,
         };
-        sin.add_input_strings(elem.inputs[0].clone());
-        sin.add_output_strings(elem.outputs[0].clone());
+        sin.add_input_strings(elem.inputs()[0].clone());
+        sin.add_output_strings(elem.outputs()[0].clone());
         sin
     }
 

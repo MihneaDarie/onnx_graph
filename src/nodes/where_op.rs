@@ -31,8 +31,8 @@ impl<T: Default> WhereNode<T> {
             unique_id: UniqueId::Where,
             next_node: None,
         };
-        where_op.add_input_strings(&elem.inputs);
-        where_op.add_output_strings(elem.outputs[0].clone());
+        where_op.add_input_strings(&elem.inputs());
+        where_op.add_output_strings(elem.outputs()[0].clone());
         where_op
     }
 

@@ -25,7 +25,7 @@ pub struct ReduceMeanNode<T: Default> {
 
 impl<T: Default> FromOnnxOperation for ReduceMeanNode<T> {
     fn from_onnx_operation(elem: &OnnxOperation) -> Result<Self> {
-        let attrs = &elem.attributes;
+        let attrs = &elem.attributes();
         let mut reduce_mean = Self {
             data: String::new(),
             axes: None,
@@ -46,14 +46,14 @@ impl<T: Default> FromOnnxOperation for ReduceMeanNode<T> {
             .and_then(|val| val.as_int())
             .or(Some(0));
 
-        let inputs = &elem.inputs;
+        let inputs = &elem.inputs();
         let b = if inputs.len() == 2 {
             Some(inputs[1].clone())
         } else {
             None
         };
         reduce_mean.add_input_strings(inputs[0].clone(), b);
-        reduce_mean.add_output_strings(elem.outputs[0].clone());
+        reduce_mean.add_output_strings(elem.outputs()[0].clone());
         Ok(reduce_mean)
     }
 }

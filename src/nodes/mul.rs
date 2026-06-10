@@ -32,8 +32,8 @@ impl<T: Default> MulNode<T> {
             unique_id: UniqueId::Mul,
             next_node: None,
         };
-        mul.add_input_strings(elem.inputs[0].clone(), elem.inputs[1].clone());
-        mul.add_output_strings(elem.outputs[0].clone());
+        mul.add_input_strings(elem.inputs()[0].clone(), elem.inputs()[1].clone());
+        mul.add_output_strings(elem.outputs()[0].clone());
         mul
     }
 

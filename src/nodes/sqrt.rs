@@ -28,8 +28,8 @@ impl<T: Default> SqrtNode<T> {
             unique_id: UniqueId::Sigmoid,
             next_node: None,
         };
-        sqrtt.add_input_strings(elem.inputs[0].clone());
-        sqrtt.add_output_strings(elem.outputs[0].clone());
+        sqrtt.add_input_strings(elem.inputs()[0].clone());
+        sqrtt.add_output_strings(elem.outputs()[0].clone());
         sqrtt
     }
 

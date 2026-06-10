@@ -24,7 +24,7 @@ pub struct ReshapeNode<T: Default> {
 
 impl<T: Default> FromOnnxOperation for ReshapeNode<T> {
     fn from_onnx_operation(elem: &OnnxOperation) -> Result<Self> {
-        let attrs = &elem.attributes;
+        let attrs = &elem.attributes();
         let mut reshape = Self {
             data: String::new(),
             shape: String::new(),
@@ -39,8 +39,8 @@ impl<T: Default> FromOnnxOperation for ReshapeNode<T> {
             unique_id: UniqueId::Reshape,
             next_node: None,
         };
-        reshape.add_input_strings(elem.inputs[0].clone(), elem.inputs[1].clone());
-        reshape.add_output_strings(elem.outputs[0].clone());
+        reshape.add_input_strings(elem.inputs()[0].clone(), elem.inputs()[1].clone());
+        reshape.add_output_strings(elem.outputs()[0].clone());
         Ok(reshape)
     }
 }

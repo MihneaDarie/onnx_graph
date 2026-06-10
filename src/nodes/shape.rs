@@ -24,7 +24,7 @@ pub struct ShapeNode<T: Default> {
 
 impl<T: Default> FromOnnxOperation for ShapeNode<T> {
     fn from_onnx_operation(elem: &OnnxOperation) -> Result<Self> {
-        let attrs = &elem.attributes;
+        let attrs = &elem.attributes();
         let mut shape = Self {
             data: String::new(),
             o: String::new(),
@@ -33,8 +33,8 @@ impl<T: Default> FromOnnxOperation for ShapeNode<T> {
             unique_id: UniqueId::Shape,
             next_node: None,
         };
-        shape.add_input_strings(elem.inputs[0].clone());
-        shape.add_output_strings(elem.outputs[0].clone());
+        shape.add_input_strings(elem.inputs()[0].clone());
+        shape.add_output_strings(elem.outputs()[0].clone());
         Ok(shape)
     }
 }

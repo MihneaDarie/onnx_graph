@@ -25,7 +25,7 @@ pub struct ArgMaxNode<T: Default> {
 
 impl<T: Default> FromOnnxOperation for ArgMaxNode<T> {
     fn from_onnx_operation(elem: &OnnxOperation) -> Result<Self> {
-        let attrs = &elem.attributes;
+        let attrs = &elem.attributes();
         let mut argmax = Self {
             data: String::new(),
             o: String::new(),
@@ -39,8 +39,8 @@ impl<T: Default> FromOnnxOperation for ArgMaxNode<T> {
             unique_id: UniqueId::ArgMax,
             next_node: None,
         };
-        argmax.add_input_strings(elem.inputs[0].clone());
-        argmax.add_output_strings(elem.outputs[0].clone());
+        argmax.add_input_strings(elem.inputs()[0].clone());
+        argmax.add_output_strings(elem.outputs()[0].clone());
         Ok(argmax)
     }
 }

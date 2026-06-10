@@ -30,8 +30,8 @@ impl<T: Default> LessNode<T> {
             unique_id: UniqueId::Less,
             next_node: None,
         };
-        less_or_equal.add_input_strings(elem.inputs[0].clone(), elem.inputs[1].clone());
-        less_or_equal.add_output_strings(elem.outputs[0].clone());
+        less_or_equal.add_input_strings(elem.inputs()[0].clone(), elem.inputs()[1].clone());
+        less_or_equal.add_output_strings(elem.outputs()[0].clone());
         less_or_equal
     }
 

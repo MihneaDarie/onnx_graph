@@ -30,11 +30,11 @@ impl<T: Default> FromOnnxOperation for FlattenNode<T> {
             unique_id: UniqueId::Flatten,
             next_node: None,
         };
-        let attrs = &elem.attributes;
+        let attrs = &elem.attributes();
         let axis = attrs.get("axis").and_then(|val| val.as_int());
         flatten.axis = axis;
-        flatten.add_input_strings(elem.inputs[0].clone());
-        flatten.add_output_strings(elem.outputs[0].clone());
+        flatten.add_input_strings(elem.inputs()[0].clone());
+        flatten.add_output_strings(elem.outputs()[0].clone());
         Ok(flatten)
     }
 }
@@ -48,8 +48,8 @@ impl<T: Default> FlattenNode<T> {
             next_node: None,
             axis: Some(0),
         };
-        flatten.add_input_strings(elem.inputs[0].clone());
-        flatten.add_output_strings(elem.outputs[0].clone());
+        flatten.add_input_strings(elem.inputs()[0].clone());
+        flatten.add_output_strings(elem.outputs()[0].clone());
         flatten
     }
 

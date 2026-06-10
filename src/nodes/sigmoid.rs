@@ -32,8 +32,8 @@ impl<T: Default> SigmoidNode<T> {
             unique_id: UniqueId::Sigmoid,
             next_node: None,
         };
-        sigmoid.add_input_strings(elem.inputs[0].clone());
-        sigmoid.add_output_strings(elem.outputs[0].clone());
+        sigmoid.add_input_strings(elem.inputs()[0].clone());
+        sigmoid.add_output_strings(elem.outputs()[0].clone());
         sigmoid
     }
 

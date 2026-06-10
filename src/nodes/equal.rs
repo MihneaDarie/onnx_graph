@@ -30,8 +30,8 @@ impl<T: Default> EqualNode<T> {
             unique_id: UniqueId::Equal,
             next_node: None,
         };
-        equal.add_input_strings(elem.inputs[0].clone(), elem.inputs[1].clone());
-        equal.add_output_strings(elem.outputs[0].clone());
+        equal.add_input_strings(elem.inputs()[0].clone(), elem.inputs()[1].clone());
+        equal.add_output_strings(elem.outputs()[0].clone());
         equal
     }
 

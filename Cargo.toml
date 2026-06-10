@@ -11,5 +11,5 @@ repository = "https://github.com/MihneaDarie/onnx_graph"
 rayon = "1.11.0"
 anyhow = "1.0.100"
 ndarray = { version = "0.17.1", features = ["rayon"] }
-onnx-extractor = "0.3.3"
+onnx-extractor = "0.3.10"
 saker-rs = {version = "0.1.2"}

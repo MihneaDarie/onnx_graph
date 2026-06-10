@@ -29,8 +29,8 @@ impl<T: Default> UnsquezeeNode<T> {
             unique_id: UniqueId::Unsqueeze,
             next_node: None,
         };
-        unsqueeze.add_input_strings(&elem.inputs);
-        unsqueeze.add_output_strings(elem.outputs[0].clone());
+        unsqueeze.add_input_strings(&elem.inputs());
+        unsqueeze.add_output_strings(elem.outputs()[0].clone());
         unsqueeze
     }
 

@@ -23,7 +23,7 @@ pub struct SoftMaxNode<T: Default> {
 
 impl<T: Default> FromOnnxOperation for SoftMaxNode<T> {
     fn from_onnx_operation(elem: &OnnxOperation) -> Result<Self> {
-        let attrs = &elem.attributes;
+        let attrs = &elem.attributes();
         let mut softmax = Self {
             input: String::new(),
             o: String::new(),
@@ -34,8 +34,8 @@ impl<T: Default> FromOnnxOperation for SoftMaxNode<T> {
             unique_id: UniqueId::Softmax,
             next_node: None,
         };
-        softmax.add_input_strings(elem.inputs[0].clone());
-        softmax.add_output_strings(elem.outputs[0].clone());
+        softmax.add_input_strings(elem.inputs()[0].clone());
+        softmax.add_output_strings(elem.outputs()[0].clone());
         Ok(softmax)
     }
 }

@@ -30,8 +30,8 @@ impl<T: Default> GreaterOrEqualNode<T> {
             unique_id: UniqueId::GreaterOrEqual,
             next_node: None,
         };
-        greater_or_equal.add_input_strings(elem.inputs[0].clone(), elem.inputs[1].clone());
-        greater_or_equal.add_output_strings(elem.outputs[0].clone());
+        greater_or_equal.add_input_strings(elem.inputs()[0].clone(), elem.inputs()[1].clone());
+        greater_or_equal.add_output_strings(elem.outputs()[0].clone());
         greater_or_equal
     }
 

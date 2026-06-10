@@ -32,9 +32,9 @@ impl<T: Default> FromOnnxOperation for MatMulNode<T> {
             unique_id: UniqueId::Gemm,
             next_node: None,
         };
-        let inputs = &elem.inputs;
+        let inputs = &elem.inputs();
         gemm.add_input_strings(inputs[0].clone(), inputs[1].clone());
-        gemm.add_output_strings(elem.outputs[0].clone());
+        gemm.add_output_strings(elem.outputs()[0].clone());
         Ok(gemm)
     }
 }

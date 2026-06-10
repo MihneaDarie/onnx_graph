@@ -95,10 +95,10 @@ impl<T: Default + 'static> GraphForm<T> {
     pub fn load_data_arrays(onnx: &OnnxModel) -> TensorMap {
         let mut map = TensorMap::new();
 
-        onnx.get_output_tensors().iter().for_each(|tensor| {
+        onnx.get_output_tensors().for_each(|tensor| {
             let shape = tensor.shape();
             if tensor.data().is_ok() {
-                map.insert(tensor.name().to_string(), TypedArray::from_tensor(tensor));
+                map.insert(tensor.name().to_string(), TypedArray::from_tensor(&tensor));
             } else if shape.iter().any(|&d| d < 0) {
                 map.insert(tensor.name().to_string(), TypedArray::Undefined);
             } else if !shape.is_empty() {
@@ -111,32 +111,30 @@ impl<T: Default + 'static> GraphForm<T> {
             }
         });
 
-        onnx.operations.iter().for_each(|s| {
-            s.outputs.iter().for_each(|out| {
+        onnx.operations().iter().for_each(|s| {
+            s.outputs().iter().for_each(|out| {
                 map.insert(out.to_string(), TypedArray::Undefined);
             });
         });
 
-        onnx.tensor_names().iter().for_each(|t| {
-            if let Some(tensor) = onnx.get_tensor(t) {
-                let shape = tensor.shape();
+        onnx.tensors().iter().for_each(|(_, tensor)| {
+            let shape = tensor.shape();
 
-                if tensor.data().is_ok() {
-                    map.insert(tensor.name().to_string(), TypedArray::from_tensor(&tensor));
-                } else if shape.iter().any(|&d| d < 0) {
-                    map.insert(tensor.name().to_string(), TypedArray::Undefined);
-                } else if !shape.is_empty() {
-                    map.insert(
-                        tensor.name().to_string(),
-                        TypedArray::from_tensor_empty(tensor, shape),
-                    );
-                } else {
-                    map.insert(tensor.name().to_string(), TypedArray::Undefined);
-                }
+            if tensor.data().is_ok() {
+                map.insert(tensor.name().to_string(), TypedArray::from_tensor(&tensor));
+            } else if shape.iter().any(|&d| d < 0) {
+                map.insert(tensor.name().to_string(), TypedArray::Undefined);
+            } else if !shape.is_empty() {
+                map.insert(
+                    tensor.name().to_string(),
+                    TypedArray::from_tensor_empty(tensor, shape),
+                );
+            } else {
+                map.insert(tensor.name().to_string(), TypedArray::Undefined);
             }
         });
 
-        onnx.get_input_tensors().iter().for_each(|tensor| {
+        onnx.get_input_tensors().for_each(|tensor| {
             map.insert(tensor.name().to_string(), TypedArray::Undefined);
         });
 
@@ -147,7 +145,7 @@ impl<T: Default + 'static> GraphForm<T> {
         elem: &OnnxOperation,
         omap: &mut TensorMap,
     ) -> anyhow::Result<Box<dyn Node<T>>> {
-        let res: Box<dyn Node<T>> = match elem.op_type.as_str() {
+        let res: Box<dyn Node<T>> = match elem.op_type().to_string().as_str() {
             "Concat" => Box::new(ConcatNode::from_onnx_operation(elem)?),
             "Gather" => Box::new(GatherNode::from_onnx_operation(elem)?),
             "Conv" => Box::new(ConvNode::from_onnx_operation(elem)?),
@@ -208,7 +206,7 @@ impl<T: Default + 'static> GraphForm<T> {
             "Shape" => Box::new(ShapeNode::from_onnx_operation(elem)?),
             "Slice" => Box::new(SliceNode::new(elem)),
             _ => {
-                panic!("Unsupported node with name {}", elem.name)
+                panic!("Unsupported node with name {}", elem.name())
             }
         };
         Ok(res)
@@ -218,7 +216,7 @@ impl<T: Default + 'static> GraphForm<T> {
         let onnx = OnnxModel::load_from_file(onnx_file_path)?;
 
         let mut ret = Self::new();
-        ret.inputs = onnx.inputs.clone();
+        ret.inputs = onnx.inputs().to_vec();
 
         let mut map = Self::load_data_arrays(&onnx);
 

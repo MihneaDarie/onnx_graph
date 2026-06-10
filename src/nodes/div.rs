@@ -30,8 +30,8 @@ impl<T: Default> DivNode<T> {
             unique_id: UniqueId::Div,
             next_node: None,
         };
-        div.add_input_strings(elem.inputs[0].clone(), elem.inputs[1].clone());
-        div.add_output_strings(elem.outputs[0].clone());
+        div.add_input_strings(elem.inputs()[0].clone(), elem.inputs()[1].clone());
+        div.add_output_strings(elem.outputs()[0].clone());
         div
     }
 

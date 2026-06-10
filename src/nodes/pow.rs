@@ -28,8 +28,8 @@ impl<T: Default> PowNode<T> {
             unique_id: UniqueId::Pow,
             next_node: None,
         };
-        pow.add_input_strings(elem.inputs[0].clone(), elem.inputs[1].clone());
-        pow.add_output_strings(elem.outputs[0].clone());
+        pow.add_input_strings(elem.inputs()[0].clone(), elem.inputs()[1].clone());
+        pow.add_output_strings(elem.outputs()[0].clone());
         pow
     }
 

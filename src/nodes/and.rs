@@ -31,8 +31,8 @@ impl<T: Default> AndNode<T> {
             unique_id: UniqueId::And,
             next_node: None,
         };
-        and.add_input_strings(elem.inputs[0].clone(), elem.inputs[1].clone());
-        and.add_output_strings(elem.outputs[0].clone());
+        and.add_input_strings(elem.inputs()[0].clone(), elem.inputs()[1].clone());
+        and.add_output_strings(elem.outputs()[0].clone());
         and
     }
     pub fn add_input_strings(&mut self, a: String, b: String) {

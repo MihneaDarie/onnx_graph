@@ -29,8 +29,8 @@ impl<T: Default> GreaterNode<T> {
             unique_id: UniqueId::Greater,
             next_node: None,
         };
-        greater.add_input_strings(elem.inputs[0].clone(), elem.inputs[1].clone());
-        greater.add_output_strings(elem.outputs[0].clone());
+        greater.add_input_strings(elem.inputs()[0].clone(), elem.inputs()[1].clone());
+        greater.add_output_strings(elem.outputs()[0].clone());
         greater
     }
 

@@ -32,7 +32,7 @@ impl<T: Default> ConcatNode<T> {
 
 impl<T: Default> FromOnnxOperation for ConcatNode<T> {
     fn from_onnx_operation(elem: &OnnxOperation) -> Result<Self> {
-        let attrs = &elem.attributes;
+        let attrs = &elem.attributes();
         let mut concat = Self {
             axis: {
                 match attrs.get("axis") {
@@ -45,8 +45,8 @@ impl<T: Default> FromOnnxOperation for ConcatNode<T> {
             o: String::new(),
             unique_id: UniqueId::Concat,
         };
-        concat.add_input_strings(elem.inputs.clone());
-        concat.add_output_strings(elem.outputs[0].clone());
+        concat.add_input_strings(elem.inputs().to_vec());
+        concat.add_output_strings(elem.outputs()[0].clone());
         Ok(concat)
     }
 }

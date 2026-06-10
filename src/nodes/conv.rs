@@ -63,7 +63,7 @@ pub struct ConvNode<T: Default> {
 
 impl<T: Default> FromOnnxOperation for ConvNode<T> {
     fn from_onnx_operation(elem: &OnnxOperation) -> anyhow::Result<Self> {
-        let attrs = &elem.attributes;
+        let attrs = &elem.attributes();
         let mut conv = Self {
             x: String::new(),
             w: String::new(),
@@ -136,10 +136,10 @@ impl<T: Default> FromOnnxOperation for ConvNode<T> {
             activation: Activation::None,
             next_node: None,
         };
-        let inputs = &elem.inputs;
+        let inputs = &elem.inputs();
         let b = inputs.get(2).cloned();
         conv.add_input_strings(inputs[0].clone(), inputs[1].clone(), b);
-        conv.add_output_strings(elem.outputs[0].clone());
+        conv.add_output_strings(elem.outputs()[0].clone());
         Ok(conv)
     }
 }

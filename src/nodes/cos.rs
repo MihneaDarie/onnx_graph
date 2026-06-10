@@ -27,8 +27,8 @@ impl<T: Default> CosNode<T> {
             unique_id: UniqueId::Cos,
             next_node: None,
         };
-        cosinus.add_input_strings(elem.inputs[0].clone());
-        cosinus.add_output_strings(elem.outputs[0].clone());
+        cosinus.add_input_strings(elem.inputs()[0].clone());
+        cosinus.add_output_strings(elem.outputs()[0].clone());
         cosinus
     }
 

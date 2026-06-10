@@ -30,7 +30,7 @@ pub struct GemmNode<T: Default> {
 
 impl<T: Default> FromOnnxOperation for GemmNode<T> {
     fn from_onnx_operation(elem: &OnnxOperation) -> Result<Self> {
-        let attrs = &elem.attributes;
+        let attrs = &elem.attributes();
         let mut gemm = Self {
             a: String::new(),
             b: String::new(),
@@ -43,10 +43,10 @@ impl<T: Default> FromOnnxOperation for GemmNode<T> {
             unique_id: UniqueId::Gemm,
             next_node: None,
         };
-        let inputs = &elem.inputs;
+        let inputs = &elem.inputs();
         let b = inputs.get(2).cloned();
         gemm.add_input_strings(inputs[0].clone(), inputs[1].clone(), b);
-        gemm.add_output_strings(elem.outputs[0].clone());
+        gemm.add_output_strings(elem.outputs()[0].clone());
         Ok(gemm)
     }
 }

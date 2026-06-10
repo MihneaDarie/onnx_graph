@@ -28,8 +28,8 @@ impl<T: Default> IsNanNode<T> {
             unique_id: UniqueId::IsNan,
             next_node: None,
         };
-        is_nan.add_input_strings(elem.inputs[0].clone());
-        is_nan.add_output_strings(elem.outputs[0].clone());
+        is_nan.add_input_strings(elem.inputs()[0].clone());
+        is_nan.add_output_strings(elem.outputs()[0].clone());
         is_nan
     }
 

@@ -34,18 +34,18 @@ impl<T: Default> FromOnnxOperation for ConstantOfShapeNode<T> {
         };
 
         let value = elem
-            .attributes
+            .attributes()
             .get("value")
             .and_then(|val| AttributeValue::as_tensor(val))
             .map(|tensor| TypedArray::from_tensor(&tensor));
         constant_of_shape.value = value;
 
-        if elem.input_count() != 0 {
-            constant_of_shape.add_input_strings(elem.inputs[0].clone());
+        if elem.inputs().len() != 0 {
+            constant_of_shape.add_input_strings(elem.inputs()[0].clone());
         } else {
-            constant_of_shape.add_input_strings(elem.name.clone());
+            constant_of_shape.add_input_strings(elem.name().to_string());
         }
-        constant_of_shape.add_output_strings(elem.outputs[0].clone());
+        constant_of_shape.add_output_strings(elem.outputs()[0].clone());
         Ok(constant_of_shape)
     }
 }
@@ -59,8 +59,8 @@ impl<T: Default> ConstantOfShapeNode<T> {
             unique_id: UniqueId::ConstantOfShape,
             next_node: None,
         };
-        constant_of_shape.add_input_strings(elem.inputs[0].clone());
-        constant_of_shape.add_output_strings(elem.outputs[0].clone());
+        constant_of_shape.add_input_strings(elem.inputs()[0].clone());
+        constant_of_shape.add_output_strings(elem.outputs()[0].clone());
         constant_of_shape
     }
 
