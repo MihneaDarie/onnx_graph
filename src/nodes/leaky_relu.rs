@@ -5,17 +5,18 @@ use saker_rs::linarg::operations::apply_leaky_relu;
 
 use crate::{
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
+    nodes_utils::hash_string,
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
 
 #[derive(Default)]
 pub struct LeakyReluNode<T: Default> {
-    pub x: String,
+    pub x: u64,
 
     alpha: f32,
 
-    pub o: String,
+    pub o: u64,
 
     unique_id: UniqueId,
 
@@ -31,14 +32,16 @@ impl<T: Default> FromOnnxOperation for LeakyReluNode<T> {
             .unwrap_or_else(|| 0.01f32);
 
         let mut leaky_relu = Self {
-            x: String::new(),
+            x: u64::default(),
             alpha,
-            o: String::new(),
+            o: u64::default(),
             unique_id: UniqueId::LeakyRelu,
             next_node: None,
         };
-        leaky_relu.add_input_strings(elem.inputs()[0].clone());
-        leaky_relu.add_output_strings(elem.outputs()[0].clone());
+        let x_id = hash_string(&elem.inputs()[0]);
+        let o_id = hash_string(&elem.outputs()[0]);
+        leaky_relu.add_inputs(x_id);
+        leaky_relu.add_outputs(o_id);
 
         Ok(leaky_relu)
     }
@@ -47,22 +50,24 @@ impl<T: Default> FromOnnxOperation for LeakyReluNode<T> {
 impl<T: Default> LeakyReluNode<T> {
     pub fn new(elem: &OnnxOperation) -> Self {
         let mut leaky_relu = Self {
-            x: String::new(),
+            x: u64::default(),
             alpha: 0.01,
-            o: String::new(),
+            o: u64::default(),
             unique_id: UniqueId::LeakyRelu,
             next_node: None,
         };
-        leaky_relu.add_input_strings(elem.inputs()[0].clone());
-        leaky_relu.add_output_strings(elem.outputs()[0].clone());
+        let x_id = hash_string(&elem.inputs()[0]);
+        let o_id = hash_string(&elem.outputs()[0]);
+        leaky_relu.add_inputs(x_id);
+        leaky_relu.add_outputs(o_id);
         leaky_relu
     }
 
-    pub fn add_input_strings(&mut self, x: String) {
+    pub fn add_inputs(&mut self, x: u64) {
         self.x = x;
     }
 
-    pub fn add_output_strings(&mut self, o: String) {
+    pub fn add_outputs(&mut self, o: u64) {
         self.o = o;
     }
 }
@@ -90,7 +95,7 @@ impl<T: Default + 'static> Node<T> for LeakyReluNode<T> {
         self.next_node = next;
     }
 
-    fn input_names(&self) -> Vec<String> {
+    fn input_hashes(&self) -> Vec<u64> {
         vec![self.x.clone()]
     }
 
@@ -108,7 +113,7 @@ impl<T: Default + 'static> Node<T> for LeakyReluNode<T> {
         self.next_node.as_ref()
     }
 
-    fn output_names(&self) -> Vec<String> {
+    fn output_hashes(&self) -> Vec<u64> {
         vec![self.o.clone()]
     }
 

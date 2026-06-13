@@ -2,6 +2,7 @@ use std::{any::Any, collections::HashMap};
 
 use crate::{
     nodes::{node::Node, unique_ids::UniqueId},
+    nodes_utils::hash_string,
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -12,11 +13,11 @@ use onnx_extractor::OnnxOperation;
 
 #[derive(Default)]
 pub struct RangeNode<T: Default> {
-    start: String,
-    limit: String,
-    delta: String,
+    start: u64,
+    limit: u64,
+    delta: u64,
 
-    o: String,
+    o: u64,
 
     unique_id: UniqueId,
 
@@ -26,25 +27,31 @@ pub struct RangeNode<T: Default> {
 impl<T: Default> RangeNode<T> {
     pub fn new(elem: &OnnxOperation) -> Self {
         let mut range = Self {
-            start: String::new(),
-            limit: String::new(),
-            delta: String::new(),
-            o: String::new(),
+            start: u64::default(),
+            limit: u64::default(),
+            delta: u64::default(),
+            o: u64::default(),
             unique_id: UniqueId::Range,
             next_node: None,
         };
-        range.add_input_strings(&elem.inputs());
-        range.add_output_strings(elem.outputs()[0].clone());
+        let input_ids = elem
+            .inputs()
+            .iter()
+            .map(|inp| hash_string(&inp))
+            .collect::<Vec<u64>>();
+        let o_id = hash_string(&elem.outputs()[0]);
+        range.add_inputs(&input_ids);
+        range.add_outputs(o_id);
         range
     }
 
-    pub fn add_input_strings(&mut self, inputs: &[String]) {
+    pub fn add_inputs(&mut self, inputs: &[u64]) {
         self.start = inputs[0].clone();
         self.limit = inputs[1].clone();
         self.delta = inputs[2].clone();
     }
 
-    pub fn add_output_strings(&mut self, o: String) {
+    pub fn add_outputs(&mut self, o: u64) {
         self.o = o;
     }
 }
@@ -80,11 +87,11 @@ impl<T: Default + 'static> Node<T> for RangeNode<T> {
         }
     }
 
-    fn output_names(&self) -> Vec<String> {
+    fn output_hashes(&self) -> Vec<u64> {
         vec![self.o.clone()]
     }
 
-    fn input_names(&self) -> Vec<String> {
+    fn input_hashes(&self) -> Vec<u64> {
         vec![self.start.clone(), self.limit.clone(), self.delta.clone()]
     }
 

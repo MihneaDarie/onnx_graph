@@ -1,7 +1,12 @@
-use std::{any::Any, collections::HashMap};
+use std::{
+    any::Any,
+    collections::HashMap,
+    hash::{DefaultHasher, Hash, Hasher},
+};
 
 use crate::{
     nodes::{node::Node, unique_ids::UniqueId},
+    nodes_utils::hash_string,
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -10,11 +15,11 @@ use onnx_extractor::OnnxOperation;
 
 #[derive(Default)]
 pub struct WhereNode<T: Default> {
-    c: String,
-    x: String,
-    y: String,
+    c: u64,
+    x: u64,
+    y: u64,
 
-    o: String,
+    o: u64,
 
     unique_id: UniqueId,
 
@@ -24,15 +29,27 @@ pub struct WhereNode<T: Default> {
 impl<T: Default> WhereNode<T> {
     pub fn new(elem: &OnnxOperation) -> Self {
         let mut where_op = Self {
-            c: String::new(),
-            x: String::new(),
-            y: String::new(),
-            o: String::new(),
+            c: u64::default(),
+            x: u64::default(),
+            y: u64::default(),
+            o: u64::default(),
             unique_id: UniqueId::Where,
             next_node: None,
         };
-        where_op.add_input_strings(&elem.inputs());
-        where_op.add_output_strings(elem.outputs()[0].clone());
+        where_op.add_inputs(
+            &elem
+                .inputs()
+                .iter()
+                .map(|inp| {
+                    let mut hasher = DefaultHasher::new();
+                    inp.hash(&mut hasher);
+                    let id = hasher.finish();
+                    id
+                })
+                .collect::<Vec<u64>>(),
+        );
+        let oid = hash_string(&elem.outputs()[0]);
+        where_op.add_output(oid);
         where_op
     }
 
@@ -63,13 +80,13 @@ impl<T: Default> WhereNode<T> {
         Ok(result)
     }
 
-    pub fn add_input_strings(&mut self, inputs: &[String]) {
+    pub fn add_inputs(&mut self, inputs: &[u64]) {
         self.c = inputs[0].clone();
         self.x = inputs[1].clone();
         self.y = inputs[2].clone();
     }
 
-    pub fn add_output_strings(&mut self, o: String) {
+    pub fn add_output(&mut self, o: u64) {
         self.o = o;
     }
 }
@@ -95,7 +112,7 @@ impl<T: Default + 'static> Node<T> for WhereNode<T> {
         let c = &*c.unwrap();
         let x = &*x.unwrap();
         let y = &*y.unwrap();
-        if self.o == "/model/layers.0/self_attn/Where_2" {}
+
         match o {
             Some(out) => {
                 TypedArray::where_op(c, x, y, out).unwrap();
@@ -104,11 +121,11 @@ impl<T: Default + 'static> Node<T> for WhereNode<T> {
         }
     }
 
-    fn output_names(&self) -> Vec<String> {
+    fn output_hashes(&self) -> Vec<u64> {
         vec![self.o.clone()]
     }
 
-    fn input_names(&self) -> Vec<String> {
+    fn input_hashes(&self) -> Vec<u64> {
         vec![self.x.clone()]
     }
 

@@ -2,6 +2,7 @@ use std::{any::Any, cell::RefCell, str::FromStr};
 
 use crate::{
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
+    nodes_utils::hash_string,
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -36,9 +37,9 @@ impl FromStr for AutoPad {
 
 #[derive(Default)]
 pub struct MaxPoolNode<T: Default> {
-    x: String,
+    x: u64,
 
-    o: String,
+    o: u64,
 
     unique_id: UniqueId,
 
@@ -56,8 +57,8 @@ impl<T: Default> FromOnnxOperation for MaxPoolNode<T> {
     fn from_onnx_operation(elem: &OnnxOperation) -> anyhow::Result<Self> {
         let attrs = &elem.attributes();
         let mut max_pool = Self {
-            x: String::new(),
-            o: String::new(),
+            x: u64::default(),
+            o: u64::default(),
             auto_pad: {
                 match attrs.get("auto_pad") {
                     Some(av) => {
@@ -126,8 +127,10 @@ impl<T: Default> FromOnnxOperation for MaxPoolNode<T> {
             unique_id: UniqueId::MaxPool,
             next_node: None,
         };
-        max_pool.add_input_strings(elem.inputs()[0].clone());
-        max_pool.add_output_strings(elem.outputs()[0].clone());
+        let x_id = hash_string(&elem.inputs()[0]);
+        let o_id = hash_string(&elem.outputs()[0]);
+        max_pool.add_inputs(x_id);
+        max_pool.add_outputs(o_id);
 
         Ok(max_pool)
     }
@@ -144,8 +147,8 @@ impl<T: Default> MaxPoolNode<T> {
         pads: Vec<usize>,
     ) -> Self {
         Self {
-            x: String::new(),
-            o: String::new(),
+            x: u64::default(),
+            o: u64::default(),
             auto_pad: AutoPad::from_str(auto_pad).unwrap(),
             ceil_mode,
             kernel_shape,
@@ -158,11 +161,11 @@ impl<T: Default> MaxPoolNode<T> {
         }
     }
 
-    pub fn add_input_strings(&mut self, x: String) {
+    pub fn add_inputs(&mut self, x: u64) {
         self.x = x;
     }
 
-    pub fn add_output_strings(&mut self, o: String) {
+    pub fn add_outputs(&mut self, o: u64) {
         self.o = o;
     }
 }
@@ -315,7 +318,7 @@ impl<T: Default + 'static> Node<T> for MaxPoolNode<T> {
         self.next_node.as_ref()
     }
 
-    fn input_names(&self) -> Vec<String> {
+    fn input_hashes(&self) -> Vec<u64> {
         vec![self.o.clone()]
     }
 
@@ -349,7 +352,7 @@ impl<T: Default + 'static> Node<T> for MaxPoolNode<T> {
         }
     }
 
-    fn output_names(&self) -> Vec<String> {
+    fn output_hashes(&self) -> Vec<u64> {
         vec![self.o.clone()]
     }
 

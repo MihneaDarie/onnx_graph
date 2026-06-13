@@ -26,8 +26,8 @@ pub trait Node<T: Default + 'static>: Send + Sync {
     fn set_next(&mut self, next: Option<Vec<Box<dyn Node<T>>>>);
     fn take_next(&mut self) -> Option<Vec<Box<dyn Node<T>>>>;
 
-    fn input_names(&self) -> Vec<String>;
-    fn output_names(&self) -> Vec<String>;
+    fn input_hashes(&self) -> Vec<u64>;
+    fn output_hashes(&self) -> Vec<u64>;
     fn get_unique_id(&self) -> UniqueId;
     fn get_unique_id_mut(&mut self) -> UniqueId;
 

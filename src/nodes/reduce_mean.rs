@@ -2,6 +2,7 @@ use std::{any::Any, collections::HashMap};
 
 use crate::{
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
+    nodes_utils::hash_string,
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -11,10 +12,10 @@ use onnx_extractor::OnnxOperation;
 
 #[derive(Default)]
 pub struct ReduceMeanNode<T: Default> {
-    data: String,
-    axes: Option<String>,
+    data: u64,
+    axes: Option<u64>,
 
-    o: String,
+    o: u64,
 
     keepdims: Option<i64>,
     noop_with_empty_axes: Option<i64>,
@@ -27,11 +28,11 @@ impl<T: Default> FromOnnxOperation for ReduceMeanNode<T> {
     fn from_onnx_operation(elem: &OnnxOperation) -> Result<Self> {
         let attrs = &elem.attributes();
         let mut reduce_mean = Self {
-            data: String::new(),
+            data: u64::default(),
             axes: None,
             keepdims: None,
             noop_with_empty_axes: None,
-            o: String::new(),
+            o: u64::default(),
             unique_id: UniqueId::Gemm,
             next_node: None,
         };
@@ -47,24 +48,25 @@ impl<T: Default> FromOnnxOperation for ReduceMeanNode<T> {
             .or(Some(0));
 
         let inputs = &elem.inputs();
-        let b = if inputs.len() == 2 {
-            Some(inputs[1].clone())
-        } else {
-            None
-        };
-        reduce_mean.add_input_strings(inputs[0].clone(), b);
-        reduce_mean.add_output_strings(elem.outputs()[0].clone());
+        let axes_id = inputs.get(1).cloned().and_then(|val| {
+            let id = hash_string(&val);
+            Some(id)
+        });
+        let data_id = hash_string(&elem.inputs()[0]);
+        let o_id = hash_string(&elem.outputs()[0]);
+        reduce_mean.add_inputs(data_id, axes_id);
+        reduce_mean.add_outputs(o_id);
         Ok(reduce_mean)
     }
 }
 
 impl<T: Default> ReduceMeanNode<T> {
-    pub fn add_input_strings(&mut self, a: String, b: Option<String>) {
+    pub fn add_inputs(&mut self, a: u64, b: Option<u64>) {
         self.data = a;
         self.axes = b;
     }
 
-    pub fn add_output_strings(&mut self, o: String) {
+    pub fn add_outputs(&mut self, o: u64) {
         self.o = o;
     }
 }
@@ -94,7 +96,7 @@ impl<T: Default + 'static> Node<T> for ReduceMeanNode<T> {
         self.next_node = next;
     }
 
-    fn input_names(&self) -> Vec<String> {
+    fn input_hashes(&self) -> Vec<u64> {
         let mut names = vec![self.data.clone()];
         if let Some(axes) = &self.axes {
             names.push(axes.clone());
@@ -102,7 +104,7 @@ impl<T: Default + 'static> Node<T> for ReduceMeanNode<T> {
         names
     }
 
-    fn output_names(&self) -> Vec<String> {
+    fn output_hashes(&self) -> Vec<u64> {
         vec![self.o.clone()]
     }
 

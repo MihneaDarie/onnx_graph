@@ -2,6 +2,7 @@ use std::any::Any;
 
 use crate::{
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
+    nodes_utils::hash_string,
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -10,9 +11,9 @@ use onnx_extractor::OnnxOperation;
 
 #[derive(Default)]
 pub struct SoftMaxNode<T: Default> {
-    input: String,
+    input: u64,
 
-    o: String,
+    o: u64,
 
     unique_id: UniqueId,
 
@@ -25,8 +26,8 @@ impl<T: Default> FromOnnxOperation for SoftMaxNode<T> {
     fn from_onnx_operation(elem: &OnnxOperation) -> Result<Self> {
         let attrs = &elem.attributes();
         let mut softmax = Self {
-            input: String::new(),
-            o: String::new(),
+            input: u64::default(),
+            o: u64::default(),
             axis: match attrs.get("axis") {
                 Some(av) => av.as_int().unwrap(),
                 None => 0,
@@ -34,8 +35,10 @@ impl<T: Default> FromOnnxOperation for SoftMaxNode<T> {
             unique_id: UniqueId::Softmax,
             next_node: None,
         };
-        softmax.add_input_strings(elem.inputs()[0].clone());
-        softmax.add_output_strings(elem.outputs()[0].clone());
+        let input_id = hash_string(&elem.inputs()[0]);
+        let o_id = hash_string(&elem.outputs()[0]);
+        softmax.add_inputs(input_id);
+        softmax.add_outputs(o_id);
         Ok(softmax)
     }
 }
@@ -43,9 +46,9 @@ impl<T: Default> FromOnnxOperation for SoftMaxNode<T> {
 impl<T: Default> SoftMaxNode<T> {
     pub fn new(axis: i64) -> Self {
         Self {
-            input: String::new(),
+            input: u64::default(),
 
-            o: String::new(),
+            o: u64::default(),
 
             unique_id: UniqueId::Softmax,
 
@@ -54,11 +57,11 @@ impl<T: Default> SoftMaxNode<T> {
         }
     }
 
-    pub fn add_input_strings(&mut self, input: String) {
+    pub fn add_inputs(&mut self, input: u64) {
         self.input = input;
     }
 
-    pub fn add_output_strings(&mut self, o: String) {
+    pub fn add_outputs(&mut self, o: u64) {
         self.o = o;
     }
 }
@@ -91,11 +94,11 @@ impl<T: Default + 'static> Node<T> for SoftMaxNode<T> {
         }
     }
 
-    fn output_names(&self) -> Vec<String> {
+    fn output_hashes(&self) -> Vec<u64> {
         vec![self.o.clone()]
     }
 
-    fn input_names(&self) -> Vec<String> {
+    fn input_hashes(&self) -> Vec<u64> {
         vec![self.input.clone()]
     }
 

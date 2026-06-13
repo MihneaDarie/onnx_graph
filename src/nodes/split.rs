@@ -2,6 +2,7 @@ use std::any::Any;
 
 use crate::{
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
+    nodes_utils::hash_string,
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -10,10 +11,10 @@ use onnx_extractor::OnnxOperation;
 
 #[derive(Default)]
 pub struct SplitNode<T: Default> {
-    input: String,
-    split: String,
+    input: u64,
+    split: u64,
 
-    o: Vec<String>,
+    o: Vec<u64>,
 
     unique_id: UniqueId,
 
@@ -27,8 +28,8 @@ impl<T: Default> FromOnnxOperation for SplitNode<T> {
     fn from_onnx_operation(elem: &OnnxOperation) -> Result<Self> {
         let attrs = &elem.attributes();
         let mut split = Self {
-            input: String::new(),
-            split: String::new(),
+            input: u64::default(),
+            split: u64::default(),
 
             o: vec![],
 
@@ -45,8 +46,16 @@ impl<T: Default> FromOnnxOperation for SplitNode<T> {
             next_node: None,
         };
 
-        split.add_input_strings(elem.inputs()[0].clone(), elem.inputs()[1].clone());
-        split.add_output_strings(elem.outputs().to_vec());
+        let input_id = hash_string(&elem.inputs()[0]);
+        let split_id = hash_string(&elem.inputs()[1]);
+        let oids = &elem
+            .outputs()
+            .iter()
+            .map(|val| hash_string(val))
+            .collect::<Vec<u64>>();
+
+        split.add_inputs(input_id, split_id);
+        split.add_outputs(oids.clone());
 
         Ok(split)
     }
@@ -55,8 +64,8 @@ impl<T: Default> FromOnnxOperation for SplitNode<T> {
 impl<T: Default> SplitNode<T> {
     pub fn new(axis: i64, num_outputs: i64) -> Self {
         Self {
-            input: String::new(),
-            split: String::new(),
+            input: u64::default(),
+            split: u64::default(),
 
             o: vec![],
             axis,
@@ -66,12 +75,12 @@ impl<T: Default> SplitNode<T> {
         }
     }
 
-    pub fn add_input_strings(&mut self, input: String, split: String) {
+    pub fn add_inputs(&mut self, input: u64, split: u64) {
         self.input = input;
         self.split = split;
     }
 
-    pub fn add_output_strings(&mut self, o: Vec<String>) {
+    pub fn add_outputs(&mut self, o: Vec<u64>) {
         self.o = o;
     }
 }
@@ -124,7 +133,7 @@ impl<T: Default + 'static> Node<T> for SplitNode<T> {
         }
     }
 
-    fn output_names(&self) -> Vec<String> {
+    fn output_hashes(&self) -> Vec<u64> {
         self.o.clone()
     }
 
@@ -139,7 +148,7 @@ impl<T: Default + 'static> Node<T> for SplitNode<T> {
         self.next_node = next;
     }
 
-    fn input_names(&self) -> Vec<String> {
+    fn input_hashes(&self) -> Vec<u64> {
         vec![self.input.clone(), self.split.clone()]
     }
 

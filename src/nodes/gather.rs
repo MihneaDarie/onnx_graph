@@ -2,6 +2,7 @@ use std::any::Any;
 
 use crate::{
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
+    nodes_utils::hash_string,
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -12,9 +13,9 @@ use onnx_extractor::OnnxOperation;
 
 #[derive(Default)]
 pub struct GatherNode<T: Default> {
-    data: String,
-    indices: String,
-    o: String,
+    data: u64,
+    indices: u64,
+    o: u64,
 
     axis: i64,
 
@@ -26,26 +27,29 @@ impl<T: Default> FromOnnxOperation for GatherNode<T> {
     fn from_onnx_operation(elem: &OnnxOperation) -> Result<Self> {
         let attrs = &elem.attributes();
         let mut gather = Self {
-            data: String::new(),
-            indices: String::new(),
-            o: String::new(),
+            data: u64::default(),
+            indices: u64::default(),
+            o: u64::default(),
             axis: attrs.get("axis").and_then(|v| v.as_int()).unwrap_or(0),
             unique_id: UniqueId::Gather,
             next_node: None,
         };
-        gather.add_input_strings(elem.inputs()[0].clone(), elem.inputs()[1].clone());
-        gather.add_output_strings(elem.outputs()[0].clone());
+        let data_id = hash_string(&elem.inputs()[0]);
+        let indices_id = hash_string(&elem.inputs()[01]);
+        let o_id = hash_string(&elem.outputs()[0]);
+        gather.add_inputs(data_id, indices_id);
+        gather.add_outputs(o_id);
         Ok(gather)
     }
 }
 
 impl<T: Default> GatherNode<T> {
-    pub fn add_input_strings(&mut self, data: String, indices: String) {
+    pub fn add_inputs(&mut self, data: u64, indices: u64) {
         self.data = data;
         self.indices = indices;
     }
 
-    pub fn add_output_strings(&mut self, o: String) {
+    pub fn add_outputs(&mut self, o: u64) {
         self.o = o;
     }
 }
@@ -75,11 +79,11 @@ impl<T: Default + 'static> Node<T> for GatherNode<T> {
         self.next_node = next;
     }
 
-    fn input_names(&self) -> Vec<String> {
+    fn input_hashes(&self) -> Vec<u64> {
         vec![self.data.clone(), self.indices.clone()]
     }
 
-    fn output_names(&self) -> Vec<String> {
+    fn output_hashes(&self) -> Vec<u64> {
         vec![self.o.clone()]
     }
 

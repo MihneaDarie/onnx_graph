@@ -2,6 +2,7 @@ use std::{any::Any, collections::HashMap};
 
 use crate::{
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
+    nodes_utils::hash_string,
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -13,11 +14,11 @@ use saker_rs::{activations::Activation, linarg::operations::sgemm_bias_parallel}
 
 #[derive(Default)]
 pub struct GemmNode<T: Default> {
-    a: String,
-    b: String,
-    c: Option<String>,
+    a: u64,
+    b: u64,
+    c: Option<u64>,
 
-    o: String,
+    o: u64,
 
     alpha: f32,
     beta: f32,
@@ -32,10 +33,10 @@ impl<T: Default> FromOnnxOperation for GemmNode<T> {
     fn from_onnx_operation(elem: &OnnxOperation) -> Result<Self> {
         let attrs = &elem.attributes();
         let mut gemm = Self {
-            a: String::new(),
-            b: String::new(),
+            a: u64::default(),
+            b: u64::default(),
             c: None,
-            o: String::new(),
+            o: u64::default(),
             alpha: attrs.get("alpha").and_then(|v| v.as_float()).unwrap_or(1.0),
             beta: attrs.get("beta").and_then(|v| v.as_float()).unwrap_or(1.0),
             trans_a: attrs.get("transA").and_then(|v| v.as_int()).unwrap_or(0) != 0,
@@ -44,21 +45,28 @@ impl<T: Default> FromOnnxOperation for GemmNode<T> {
             next_node: None,
         };
         let inputs = &elem.inputs();
-        let b = inputs.get(2).cloned();
-        gemm.add_input_strings(inputs[0].clone(), inputs[1].clone(), b);
-        gemm.add_output_strings(elem.outputs()[0].clone());
+        let b = inputs.get(2).cloned().and_then(|val| {
+            let id = hash_string(&val);
+            Some(id)
+        });
+
+        let x_id = hash_string(&elem.inputs()[0]);
+        let w_id = hash_string(&elem.inputs()[1]);
+        gemm.add_inputs(x_id, w_id, b);
+        let o_id = hash_string(&elem.outputs()[0]);
+        gemm.add_outputs(o_id);
         Ok(gemm)
     }
 }
 
 impl<T: Default> GemmNode<T> {
-    pub fn add_input_strings(&mut self, a: String, b: String, c: Option<String>) {
+    pub fn add_inputs(&mut self, a: u64, b: u64, c: Option<u64>) {
         self.a = a;
         self.b = b;
         self.c = c;
     }
 
-    pub fn add_output_strings(&mut self, o: String) {
+    pub fn add_outputs(&mut self, o: u64) {
         self.o = o;
     }
 }
@@ -88,15 +96,15 @@ impl<T: Default + 'static> Node<T> for GemmNode<T> {
         self.next_node = next;
     }
 
-    fn input_names(&self) -> Vec<String> {
+    fn input_hashes(&self) -> Vec<u64> {
         let mut names = vec![self.a.clone(), self.b.clone()];
         if let Some(c) = &self.c {
-            names.push(c.clone());
+            names.push(*c);
         }
         names
     }
 
-    fn output_names(&self) -> Vec<String> {
+    fn output_hashes(&self) -> Vec<u64> {
         vec![self.o.clone()]
     }
 
@@ -105,7 +113,7 @@ impl<T: Default + 'static> Node<T> for GemmNode<T> {
     }
 
     fn execute(&self, omap: &mut TensorMap) {
-        let def = String::new();
+        let def = u64::default();
         let c_key = self.c.as_ref().unwrap_or(&def);
 
         let [a, b, c, o] = omap.get_disjoint_mut([&self.a, &self.b, c_key, &self.o]);
@@ -147,10 +155,6 @@ impl<T: Default + 'static> Node<T> for GemmNode<T> {
             next.iter().for_each(|v| v.print());
         }
     }
-
-    
-
-    
 
     fn determine_output_shape(&mut self, omap: &mut TensorMap) {
         let [a, b, o] = omap.get_disjoint_mut([&self.a, &self.b, &self.o]);

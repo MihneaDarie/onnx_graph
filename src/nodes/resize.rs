@@ -2,6 +2,7 @@ use std::{any::Any, collections::HashMap, str::FromStr};
 
 use crate::{
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
+    nodes_utils::hash_string,
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -101,12 +102,12 @@ impl FromStr for NearestMode {
 
 #[derive(Default)]
 pub struct ResizeNode<T: Default> {
-    x: String,
-    roi: Option<String>,
-    scales: Option<String>,
-    sizes: Option<String>,
+    x: u64,
+    roi: Option<u64>,
+    scales: Option<u64>,
+    sizes: Option<u64>,
 
-    o: String,
+    o: u64,
 
     unique_id: UniqueId,
 
@@ -127,17 +128,26 @@ impl<T: Default> FromOnnxOperation for ResizeNode<T> {
     fn from_onnx_operation(elem: &OnnxOperation) -> Result<Self> {
         let attrs = &elem.attributes();
         let inputs = &elem.inputs();
-        let roi = inputs.get(1).filter(|s| !s.is_empty()).cloned();
-        let scales = inputs.get(2).filter(|s| !s.is_empty()).cloned();
-        let sizes = inputs.get(3).filter(|s| !s.is_empty()).cloned();
+        let roi = inputs
+            .get(1)
+            .filter(|s| !s.is_empty())
+            .map(|val| hash_string(val));
+        let scales = inputs
+            .get(2)
+            .filter(|s| !s.is_empty())
+            .map(|val| hash_string(val));
+        let sizes = inputs
+            .get(3)
+            .filter(|s| !s.is_empty())
+            .map(|val| hash_string(val));
 
         let mut resize = Self {
-            x: String::new(),
+            x: u64::default(),
             roi: None,
             scales: None,
             sizes: None,
 
-            o: String::new(),
+            o: u64::default(),
             unique_id: UniqueId::Resize,
 
             antialias: match attrs.get("antialias") {
@@ -188,8 +198,11 @@ impl<T: Default> FromOnnxOperation for ResizeNode<T> {
             next_node: None,
         };
 
-        resize.add_input_strings(inputs[0].clone(), roi, scales, sizes);
-        resize.add_output_strings(elem.outputs()[0].clone());
+        let x_id = hash_string(&elem.inputs()[0]);
+        let o_id = hash_string(&elem.outputs()[0]);
+
+        resize.add_inputs(x_id, roi, scales, sizes);
+        resize.add_outputs(o_id);
 
         Ok(resize)
     }
@@ -208,12 +221,12 @@ impl<T: Default> ResizeNode<T> {
         neares_mode: &str,
     ) -> Self {
         Self {
-            x: String::new(),
+            x: u64::default(),
             roi: None,
             scales: None,
             sizes: None,
 
-            o: String::new(),
+            o: u64::default(),
 
             antialias,
             axes,
@@ -233,12 +246,12 @@ impl<T: Default> ResizeNode<T> {
         }
     }
 
-    pub fn add_input_strings(
+    pub fn add_inputs(
         &mut self,
-        x: String,
-        roi: Option<String>,
-        scales: Option<String>,
-        sizes: Option<String>,
+        x: u64,
+        roi: Option<u64>,
+        scales: Option<u64>,
+        sizes: Option<u64>,
     ) {
         self.x = x;
         self.roi = roi;
@@ -246,7 +259,7 @@ impl<T: Default> ResizeNode<T> {
         self.sizes = sizes;
     }
 
-    pub fn add_output_strings(&mut self, o: String) {
+    pub fn add_outputs(&mut self, o: u64) {
         self.o = o;
     }
 }
@@ -278,16 +291,16 @@ impl<T: Default + 'static> Node<T> for ResizeNode<T> {
         self.next_node = next;
     }
 
-    fn input_names(&self) -> Vec<String> {
-        let roi = self.roi.clone().unwrap_or(String::from(""));
-        let scales = self.scales.clone().unwrap_or(String::from(""));
-        let sizes = self.sizes.clone().unwrap_or(String::from(""));
+    fn input_hashes(&self) -> Vec<u64> {
+        let roi = self.roi.clone().unwrap_or_default();
+        let scales = self.scales.clone().unwrap_or_default();
+        let sizes = self.sizes.clone().unwrap_or_default();
 
         vec![self.x.clone(), roi, scales, sizes]
     }
 
     fn execute(&self, omap: &mut TensorMap) {
-        let empty = String::from("");
+        let empty = 0;
         let sizes = self.sizes.as_ref().unwrap_or(&empty);
         let scales = self.scales.as_ref().unwrap_or(&empty);
 
@@ -304,7 +317,7 @@ impl<T: Default + 'static> Node<T> for ResizeNode<T> {
         }
     }
 
-    fn output_names(&self) -> Vec<String> {
+    fn output_hashes(&self) -> Vec<u64> {
         vec![self.o.clone()]
     }
 
@@ -321,10 +334,6 @@ impl<T: Default + 'static> Node<T> for ResizeNode<T> {
             next.iter().for_each(|v| v.print());
         }
     }
-
-    
-
-    
 
     fn determine_output_shape(&mut self, omap: &mut TensorMap) {
         if let Some(list) = &mut self.next_node {

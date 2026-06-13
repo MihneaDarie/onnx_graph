@@ -1,20 +1,24 @@
 use crate::{
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
+    nodes_utils::hash_string,
     tensor_map::TensorMap,
     typed_array::TypedArray,
     zeros_from_datatype,
 };
 use anyhow::Result;
 use onnx_extractor::{DataType, OnnxOperation};
-use std::any::Any;
+use std::{
+    any::Any,
+    hash::{DefaultHasher, Hash, Hasher},
+};
 
 #[derive(Default)]
 pub struct CastNode<T: Default> {
-    x: String,
+    x: u64,
 
     to: Option<DataType>,
 
-    o: String,
+    o: u64,
 
     unique_id: UniqueId,
 
@@ -28,24 +32,27 @@ impl<T: Default> FromOnnxOperation for CastNode<T> {
             .get("to")
             .and_then(|v| v.as_int().map(|val| DataType::from_onnx_type(val as i32)));
         let mut cast = Self {
-            x: String::new(),
+            x: u64::default(),
             to,
-            o: String::new(),
+            o: u64::default(),
             unique_id: UniqueId::Cast,
             next_node: None,
         };
-        cast.add_input_strings(elem.inputs()[0].clone());
-        cast.add_output_strings(elem.outputs()[0].clone());
+
+        let x_id = hash_string(&elem.inputs()[0]);
+        cast.add_inputs(x_id);
+        let o_id = hash_string(&elem.outputs()[0]);
+        cast.add_outputs(o_id);
         Ok(cast)
     }
 }
 
 impl<T: Default> CastNode<T> {
-    pub fn add_input_strings(&mut self, x: String) {
+    pub fn add_inputs(&mut self, x: u64) {
         self.x = x;
     }
 
-    pub fn add_output_strings(&mut self, o: String) {
+    pub fn add_outputs(&mut self, o: u64) {
         self.o = o;
     }
 }
@@ -78,11 +85,11 @@ impl<T: Default + 'static> Node<T> for CastNode<T> {
         }
     }
 
-    fn output_names(&self) -> Vec<String> {
+    fn output_hashes(&self) -> Vec<u64> {
         vec![self.o.clone()]
     }
 
-    fn input_names(&self) -> Vec<String> {
+    fn input_hashes(&self) -> Vec<u64> {
         vec![self.x.clone()]
     }
 

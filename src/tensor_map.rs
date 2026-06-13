@@ -1,10 +1,13 @@
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    hash::{DefaultHasher, Hash, Hasher},
+};
 
-use crate::typed_array::TypedArray;
+use crate::{nodes_utils::hash_string, typed_array::TypedArray};
 
 #[derive(Default)]
 pub struct TensorMap {
-    inner: HashMap<String, TypedArray>,
+    inner: HashMap<u64, TypedArray>,
 }
 
 impl TensorMap {
@@ -17,40 +20,46 @@ impl TensorMap {
     }
 
     #[inline]
-    pub fn insert(&mut self, key: String, val: TypedArray) {
+    pub fn insert(&mut self, key: u64, val: TypedArray) {
         self.inner.insert(key, val.ensure_contiguous());
     }
 
     #[inline]
     pub fn get_disjoint_mut<const N: usize>(
         &mut self,
-        key: [&str; N],
+        key: [&u64; N],
     ) -> [Option<&mut TypedArray>; N] {
         self.inner.get_disjoint_mut(key)
     }
 
     #[inline]
-    pub fn get(&self, key: &str) -> Option<&TypedArray> {
+    pub fn get(&self, key: &u64) -> Option<&TypedArray> {
         self.inner.get(key)
     }
 
     #[inline]
-    pub fn get_mut(&mut self, key: &str) -> Option<&mut TypedArray> {
+    pub fn get_from_str(&self, key: &str) -> Option<&TypedArray> {
+        let id = hash_string(key);
+        self.inner.get(&id)
+    }
+
+    #[inline]
+    pub fn get_mut(&mut self, key: &u64) -> Option<&mut TypedArray> {
         self.inner.get_mut(key)
     }
 
     #[inline]
-    pub fn remove(&mut self, key: &str) -> Option<TypedArray> {
+    pub fn remove(&mut self, key: &u64) -> Option<TypedArray> {
         self.inner.remove(key)
     }
 
     #[inline]
-    pub fn contains_key(&self, key: &str) -> bool {
+    pub fn contains_key(&self, key: &u64) -> bool {
         self.inner.contains_key(key)
     }
 
     #[inline]
-    pub fn iter(&self) -> impl Iterator<Item = (&String, &TypedArray)> {
+    pub fn iter(&self) -> impl Iterator<Item = (&u64, &TypedArray)> {
         self.inner.iter()
     }
 }

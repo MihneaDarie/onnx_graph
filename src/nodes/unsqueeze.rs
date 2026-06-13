@@ -2,6 +2,7 @@ use std::{any::Any, collections::HashMap};
 
 use crate::{
     nodes::{node::Node, unique_ids::UniqueId},
+    nodes_utils::hash_string,
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -10,10 +11,10 @@ use onnx_extractor::OnnxOperation;
 
 #[derive(Default)]
 pub struct UnsquezeeNode<T: Default> {
-    data: String,
-    axes: String,
+    data: u64,
+    axes: u64,
 
-    o: String,
+    o: u64,
 
     unique_id: UniqueId,
 
@@ -23,23 +24,29 @@ pub struct UnsquezeeNode<T: Default> {
 impl<T: Default> UnsquezeeNode<T> {
     pub fn new(elem: &OnnxOperation) -> Self {
         let mut unsqueeze = Self {
-            data: String::new(),
-            axes: String::new(),
-            o: String::new(),
+            data: u64::default(),
+            axes: u64::default(),
+            o: u64::default(),
             unique_id: UniqueId::Unsqueeze,
             next_node: None,
         };
-        unsqueeze.add_input_strings(&elem.inputs());
-        unsqueeze.add_output_strings(elem.outputs()[0].clone());
+        let inputs = &elem
+            .inputs()
+            .iter()
+            .map(|val| hash_string(val))
+            .collect::<Vec<u64>>();
+        let o_id = hash_string(&elem.outputs()[0]);
+        unsqueeze.add_inputs(inputs);
+        unsqueeze.add_outputs(o_id);
         unsqueeze
     }
 
-    pub fn add_input_strings(&mut self, inputs: &[String]) {
+    pub fn add_inputs(&mut self, inputs: &[u64]) {
         self.data = inputs[0].clone();
         self.axes = inputs[1].clone();
     }
 
-    pub fn add_output_strings(&mut self, o: String) {
+    pub fn add_outputs(&mut self, o: u64) {
         self.o = o;
     }
 }
@@ -73,11 +80,11 @@ impl<T: Default + 'static> Node<T> for UnsquezeeNode<T> {
         }
     }
 
-    fn output_names(&self) -> Vec<String> {
+    fn output_hashes(&self) -> Vec<u64> {
         vec![self.o.clone()]
     }
 
-    fn input_names(&self) -> Vec<String> {
+    fn input_hashes(&self) -> Vec<u64> {
         vec![self.data.clone()]
     }
 

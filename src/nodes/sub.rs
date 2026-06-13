@@ -3,6 +3,7 @@ use std::{any::Any, collections::HashMap};
 use crate::{
     impl_typed_binop,
     nodes::{node::Node, unique_ids::UniqueId},
+    nodes_utils::hash_string,
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -12,10 +13,10 @@ use saker_rs::linarg::operations::sub_maybe_simd;
 
 #[derive(Default)]
 pub struct SubNode<T: Default> {
-    a: String,
-    b: String,
+    a: u64,
+    b: u64,
 
-    o: String,
+    o: u64,
 
     unique_id: UniqueId,
 
@@ -25,23 +26,26 @@ pub struct SubNode<T: Default> {
 impl<T: Default> SubNode<T> {
     pub fn new(elem: &OnnxOperation) -> Self {
         let mut sub = Self {
-            a: String::new(),
-            b: String::new(),
-            o: String::new(),
+            a: u64::default(),
+            b: u64::default(),
+            o: u64::default(),
             unique_id: UniqueId::Sub,
             next_node: None,
         };
-        sub.add_input_strings(elem.inputs()[0].clone(), elem.inputs()[1].clone());
-        sub.add_output_strings(elem.outputs()[0].clone());
+        let aid = hash_string(&elem.inputs()[0]);
+        let bid = hash_string(&elem.inputs()[1]);
+        sub.add_inputs(aid, bid);
+        let oid = hash_string(&elem.outputs()[0]);
+        sub.add_outputs(oid);
         sub
     }
 
-    pub fn add_input_strings(&mut self, a: String, b: String) {
+    pub fn add_inputs(&mut self, a: u64, b: u64) {
         self.a = a;
         self.b = b;
     }
 
-    pub fn add_output_strings(&mut self, o: String) {
+    pub fn add_outputs(&mut self, o: u64) {
         self.o = o;
     }
 }
@@ -73,7 +77,7 @@ impl<T: Default + 'static> Node<T> for SubNode<T> {
         self.next_node.as_ref()
     }
 
-    fn input_names(&self) -> Vec<String> {
+    fn input_hashes(&self) -> Vec<u64> {
         vec![self.a.clone(), self.b.clone()]
     }
 
@@ -106,7 +110,7 @@ impl<T: Default + 'static> Node<T> for SubNode<T> {
         }
     }
 
-    fn output_names(&self) -> Vec<String> {
+    fn output_hashes(&self) -> Vec<u64> {
         vec![self.o.clone()]
     }
 

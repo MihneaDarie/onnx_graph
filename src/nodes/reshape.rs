@@ -1,8 +1,9 @@
-use std::{any::Any};
+use std::any::Any;
 
 use crate::{
     get_curent_size_and_shape,
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
+    nodes_utils::hash_string,
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -11,10 +12,10 @@ use onnx_extractor::OnnxOperation;
 
 #[derive(Default)]
 pub struct ReshapeNode<T: Default> {
-    data: String,
-    shape: String,
+    data: u64,
+    shape: u64,
 
-    o: String,
+    o: u64,
 
     unique_id: UniqueId,
 
@@ -26,10 +27,10 @@ impl<T: Default> FromOnnxOperation for ReshapeNode<T> {
     fn from_onnx_operation(elem: &OnnxOperation) -> Result<Self> {
         let attrs = &elem.attributes();
         let mut reshape = Self {
-            data: String::new(),
-            shape: String::new(),
+            data: u64::default(),
+            shape: u64::default(),
 
-            o: String::new(),
+            o: u64::default(),
             allow_zero: {
                 match attrs.get("allow_zero") {
                     Some(av) => av.as_int().unwrap() != 0,
@@ -39,8 +40,11 @@ impl<T: Default> FromOnnxOperation for ReshapeNode<T> {
             unique_id: UniqueId::Reshape,
             next_node: None,
         };
-        reshape.add_input_strings(elem.inputs()[0].clone(), elem.inputs()[1].clone());
-        reshape.add_output_strings(elem.outputs()[0].clone());
+        let data_id = hash_string(&elem.inputs()[0]);
+        let shape_id = hash_string(&elem.inputs()[1]);
+        let o_id = hash_string(&elem.outputs()[0]);
+        reshape.add_inputs(data_id, shape_id);
+        reshape.add_outputs(o_id);
         Ok(reshape)
     }
 }
@@ -48,21 +52,21 @@ impl<T: Default> FromOnnxOperation for ReshapeNode<T> {
 impl<T: Default> ReshapeNode<T> {
     pub fn new(allow_zero: bool) -> Self {
         Self {
-            data: String::new(),
-            shape: String::new(),
+            data: u64::default(),
+            shape: u64::default(),
 
-            o: String::new(),
+            o: u64::default(),
             unique_id: UniqueId::Reshape,
             allow_zero,
             next_node: None,
         }
     }
-    pub fn add_input_strings(&mut self, data: String, shape: String) {
+    pub fn add_inputs(&mut self, data: u64, shape: u64) {
         self.shape = shape;
         self.data = data;
     }
 
-    pub fn add_output_strings(&mut self, o: String) {
+    pub fn add_outputs(&mut self, o: u64) {
         self.o = o;
     }
 }
@@ -90,7 +94,7 @@ impl<T: Default + 'static> Node<T> for ReshapeNode<T> {
         self.next_node = next;
     }
 
-    fn input_names(&self) -> Vec<String> {
+    fn input_hashes(&self) -> Vec<u64> {
         vec![self.o.clone()]
     }
 
@@ -114,7 +118,7 @@ impl<T: Default + 'static> Node<T> for ReshapeNode<T> {
         }
     }
 
-    fn output_names(&self) -> Vec<String> {
+    fn output_hashes(&self) -> Vec<u64> {
         vec![self.o.clone()]
     }
 

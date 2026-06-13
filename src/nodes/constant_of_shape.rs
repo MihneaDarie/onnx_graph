@@ -1,8 +1,13 @@
-use std::{any::Any, collections::HashMap};
+use std::{
+    any::Any,
+    collections::HashMap,
+    hash::{DefaultHasher, Hash, Hasher},
+};
 
 use crate::{
     fill_from_elem,
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
+    nodes_utils::hash_string,
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -12,11 +17,11 @@ use onnx_extractor::{AttributeValue, OnnxOperation};
 
 #[derive(Default)]
 pub struct ConstantOfShapeNode<T: Default> {
-    shape_array: String,
+    shape_array: u64,
 
     value: Option<TypedArray>,
 
-    o: String,
+    o: u64,
 
     unique_id: UniqueId,
 
@@ -26,9 +31,9 @@ pub struct ConstantOfShapeNode<T: Default> {
 impl<T: Default> FromOnnxOperation for ConstantOfShapeNode<T> {
     fn from_onnx_operation(elem: &OnnxOperation) -> Result<Self> {
         let mut constant_of_shape = Self {
-            shape_array: String::new(),
+            shape_array: u64::default(),
             value: None,
-            o: String::new(),
+            o: u64::default(),
             unique_id: UniqueId::ConstantOfShape,
             next_node: None,
         };
@@ -41,11 +46,20 @@ impl<T: Default> FromOnnxOperation for ConstantOfShapeNode<T> {
         constant_of_shape.value = value;
 
         if elem.inputs().len() != 0 {
-            constant_of_shape.add_input_strings(elem.inputs()[0].clone());
+            let mut hasher = DefaultHasher::new();
+            elem.inputs()[0].hash(&mut hasher);
+            let data_id = hasher.finish();
+            constant_of_shape.add_inputs(data_id);
         } else {
-            constant_of_shape.add_input_strings(elem.name().to_string());
+            let mut hasher = DefaultHasher::new();
+            elem.name().hash(&mut hasher);
+            let data_id = hasher.finish();
+            constant_of_shape.add_inputs(data_id);
         }
-        constant_of_shape.add_output_strings(elem.outputs()[0].clone());
+        let mut hasher = DefaultHasher::new();
+        elem.inputs()[0].hash(&mut hasher);
+        let o_id = hasher.finish();
+        constant_of_shape.add_outputs(o_id);
         Ok(constant_of_shape)
     }
 }
@@ -53,22 +67,26 @@ impl<T: Default> FromOnnxOperation for ConstantOfShapeNode<T> {
 impl<T: Default> ConstantOfShapeNode<T> {
     pub fn new(elem: &OnnxOperation) -> Self {
         let mut constant_of_shape = Self {
-            shape_array: String::new(),
+            shape_array: u64::default(),
             value: Some(TypedArray::Float(ArrayD::zeros(IxDyn(&[1])))),
-            o: String::new(),
+            o: u64::default(),
             unique_id: UniqueId::ConstantOfShape,
             next_node: None,
         };
-        constant_of_shape.add_input_strings(elem.inputs()[0].clone());
-        constant_of_shape.add_output_strings(elem.outputs()[0].clone());
+
+        let data_id = hash_string(&elem.inputs()[0]);
+        constant_of_shape.add_inputs(data_id);
+
+        let o_id = hash_string(&elem.outputs()[0]);
+        constant_of_shape.add_outputs(o_id);
         constant_of_shape
     }
 
-    pub fn add_input_strings(&mut self, x: String) {
+    pub fn add_inputs(&mut self, x: u64) {
         self.shape_array = x;
     }
 
-    pub fn add_output_strings(&mut self, o: String) {
+    pub fn add_outputs(&mut self, o: u64) {
         self.o = o;
     }
 }
@@ -106,11 +124,11 @@ impl<T: Default + 'static> Node<T> for ConstantOfShapeNode<T> {
         }
     }
 
-    fn output_names(&self) -> Vec<String> {
+    fn output_hashes(&self) -> Vec<u64> {
         vec![self.o.clone()]
     }
 
-    fn input_names(&self) -> Vec<String> {
+    fn input_hashes(&self) -> Vec<u64> {
         vec![self.shape_array.clone()]
     }
 

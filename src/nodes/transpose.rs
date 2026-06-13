@@ -2,6 +2,7 @@ use std::any::Any;
 
 use crate::{
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
+    nodes_utils::hash_string,
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -10,9 +11,9 @@ use onnx_extractor::OnnxOperation;
 
 #[derive(Default)]
 pub struct TransposeNode<T: Default> {
-    input: String,
+    input: u64,
 
-    o: String,
+    o: u64,
 
     unique_id: UniqueId,
 
@@ -25,8 +26,8 @@ impl<T: Default> FromOnnxOperation for TransposeNode<T> {
     fn from_onnx_operation(elem: &OnnxOperation) -> Result<Self> {
         let attrs = &elem.attributes();
         let mut trans = Self {
-            input: String::new(),
-            o: String::new(),
+            input: u64::default(),
+            o: u64::default(),
             perm: match attrs.get("perm") {
                 Some(av) => av.as_ints().unwrap().to_vec(),
                 None => vec![],
@@ -34,8 +35,10 @@ impl<T: Default> FromOnnxOperation for TransposeNode<T> {
             unique_id: UniqueId::Transpose,
             next_node: None,
         };
-        trans.add_input_strings(elem.inputs()[0].clone());
-        trans.add_output_strings(elem.outputs()[0].clone());
+        let x_id = hash_string(&elem.inputs()[0]);
+        let o_id = hash_string(&elem.outputs()[0]);
+        trans.add_inputs(x_id);
+        trans.add_outputs(o_id);
         Ok(trans)
     }
 }
@@ -43,19 +46,19 @@ impl<T: Default> FromOnnxOperation for TransposeNode<T> {
 impl<T: Default> TransposeNode<T> {
     pub fn new(perm: Vec<i64>) -> Self {
         Self {
-            input: String::new(),
-            o: String::new(),
+            input: u64::default(),
+            o: u64::default(),
             perm,
             unique_id: UniqueId::Transpose,
             next_node: None,
         }
     }
 
-    pub fn add_input_strings(&mut self, input: String) {
+    pub fn add_inputs(&mut self, input: u64) {
         self.input = input;
     }
 
-    pub fn add_output_strings(&mut self, o: String) {
+    pub fn add_outputs(&mut self, o: u64) {
         self.o = o;
     }
 }
@@ -83,11 +86,11 @@ impl<T: Default + 'static> Node<T> for TransposeNode<T> {
         self.next_node = next;
     }
 
-    fn output_names(&self) -> Vec<String> {
+    fn output_hashes(&self) -> Vec<u64> {
         vec![self.o.clone()]
     }
 
-    fn input_names(&self) -> Vec<String> {
+    fn input_hashes(&self) -> Vec<u64> {
         vec![self.input.clone()]
     }
 

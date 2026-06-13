@@ -2,6 +2,7 @@ use std::{any::Any, collections::HashMap};
 
 use crate::{
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
+    nodes_utils::hash_string,
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -10,11 +11,11 @@ use onnx_extractor::OnnxOperation;
 
 #[derive(Default)]
 pub struct FlattenNode<T: Default> {
-    x: String,
+    x: u64,
 
     axis: Option<i64>,
 
-    o: String,
+    o: u64,
 
     unique_id: UniqueId,
 
@@ -24,17 +25,20 @@ pub struct FlattenNode<T: Default> {
 impl<T: Default> FromOnnxOperation for FlattenNode<T> {
     fn from_onnx_operation(elem: &OnnxOperation) -> Result<Self> {
         let mut flatten = Self {
-            x: String::new(),
+            x: u64::default(),
             axis: Some(0),
-            o: String::new(),
+            o: u64::default(),
             unique_id: UniqueId::Flatten,
             next_node: None,
         };
         let attrs = &elem.attributes();
         let axis = attrs.get("axis").and_then(|val| val.as_int());
         flatten.axis = axis;
-        flatten.add_input_strings(elem.inputs()[0].clone());
-        flatten.add_output_strings(elem.outputs()[0].clone());
+
+        let x_id = hash_string(&elem.inputs()[0]);
+        let o_id = hash_string(&elem.outputs()[0]);
+        flatten.add_inputs(x_id);
+        flatten.add_outputs(o_id);
         Ok(flatten)
     }
 }
@@ -42,22 +46,24 @@ impl<T: Default> FromOnnxOperation for FlattenNode<T> {
 impl<T: Default> FlattenNode<T> {
     pub fn new(elem: &OnnxOperation) -> Self {
         let mut flatten = Self {
-            x: String::new(),
-            o: String::new(),
+            x: u64::default(),
+            o: u64::default(),
             unique_id: UniqueId::Flatten,
             next_node: None,
             axis: Some(0),
         };
-        flatten.add_input_strings(elem.inputs()[0].clone());
-        flatten.add_output_strings(elem.outputs()[0].clone());
+        let x_id = hash_string(&elem.inputs()[0]);
+        let o_id = hash_string(&elem.outputs()[0]);
+        flatten.add_inputs(x_id);
+        flatten.add_outputs(o_id);
         flatten
     }
 
-    pub fn add_input_strings(&mut self, x: String) {
+    pub fn add_inputs(&mut self, x: u64) {
         self.x = x;
     }
 
-    pub fn add_output_strings(&mut self, o: String) {
+    pub fn add_outputs(&mut self, o: u64) {
         self.o = o;
     }
 }
@@ -91,11 +97,11 @@ impl<T: Default + 'static> Node<T> for FlattenNode<T> {
         }
     }
 
-    fn output_names(&self) -> Vec<String> {
+    fn output_hashes(&self) -> Vec<u64> {
         vec![self.o.clone()]
     }
 
-    fn input_names(&self) -> Vec<String> {
+    fn input_hashes(&self) -> Vec<u64> {
         vec![self.x.clone()]
     }
 

@@ -3,6 +3,7 @@ use std::{any::Any, collections::HashMap};
 use crate::{
     call_activation_source_to_destination,
     nodes::{node::Node, unique_ids::UniqueId},
+    nodes_utils::hash_string,
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -15,9 +16,9 @@ use saker_rs::linarg::{
 
 #[derive(Default)]
 pub struct SigmoidNode<T: Default> {
-    x: String,
+    x: u64,
 
-    o: String,
+    o: u64,
 
     unique_id: UniqueId,
 
@@ -27,21 +28,23 @@ pub struct SigmoidNode<T: Default> {
 impl<T: Default> SigmoidNode<T> {
     pub fn new(elem: &OnnxOperation) -> Self {
         let mut sigmoid = Self {
-            x: String::new(),
-            o: String::new(),
+            x: u64::default(),
+            o: u64::default(),
             unique_id: UniqueId::Sigmoid,
             next_node: None,
         };
-        sigmoid.add_input_strings(elem.inputs()[0].clone());
-        sigmoid.add_output_strings(elem.outputs()[0].clone());
+        let x_id = hash_string(&elem.inputs()[0]);
+        let o_id = hash_string(&elem.outputs()[0]);
+        sigmoid.add_inputs(x_id);
+        sigmoid.add_outputs(o_id);
         sigmoid
     }
 
-    pub fn add_input_strings(&mut self, x: String) {
+    pub fn add_inputs(&mut self, x: u64) {
         self.x = x;
     }
 
-    pub fn add_output_strings(&mut self, o: String) {
+    pub fn add_outputs(&mut self, o: u64) {
         self.o = o;
     }
 }
@@ -74,11 +77,11 @@ impl<T: Default + 'static> Node<T> for SigmoidNode<T> {
         }
     }
 
-    fn output_names(&self) -> Vec<String> {
+    fn output_hashes(&self) -> Vec<u64> {
         vec![self.o.clone()]
     }
 
-    fn input_names(&self) -> Vec<String> {
+    fn input_hashes(&self) -> Vec<u64> {
         vec![self.x.clone()]
     }
 

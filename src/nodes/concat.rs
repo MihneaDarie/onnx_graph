@@ -1,7 +1,11 @@
-use std::any::Any;
+use std::{
+    any::Any,
+    hash::{DefaultHasher, Hash, Hasher},
+};
 
 use crate::{
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
+    nodes_utils::hash_string,
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -10,9 +14,9 @@ use onnx_extractor::OnnxOperation;
 
 #[derive(Default)]
 pub struct ConcatNode<T> {
-    inputs: Vec<String>,
+    inputs: Vec<u64>,
 
-    o: String,
+    o: u64,
 
     unique_id: UniqueId,
 
@@ -21,11 +25,11 @@ pub struct ConcatNode<T> {
 }
 
 impl<T: Default> ConcatNode<T> {
-    pub fn add_input_strings(&mut self, inputs: Vec<String>) {
+    pub fn add_inputs(&mut self, inputs: Vec<u64>) {
         self.inputs = inputs;
     }
 
-    pub fn add_output_strings(&mut self, o: String) {
+    pub fn add_outputs(&mut self, o: u64) {
         self.o = o;
     }
 }
@@ -42,11 +46,23 @@ impl<T: Default> FromOnnxOperation for ConcatNode<T> {
             },
             next_node: None,
             inputs: vec![],
-            o: String::new(),
+            o: u64::default(),
             unique_id: UniqueId::Concat,
         };
-        concat.add_input_strings(elem.inputs().to_vec());
-        concat.add_output_strings(elem.outputs()[0].clone());
+        let ids = elem
+            .inputs()
+            .iter()
+            .map(|input| {
+                let mut hasher = DefaultHasher::new();
+                input.hash(&mut hasher);
+                let id = hasher.finish();
+                id
+            })
+            .collect();
+        concat.add_inputs(ids);
+
+        let o_id = hash_string(&elem.outputs()[0]);
+        concat.add_outputs(o_id);
         Ok(concat)
     }
 }
@@ -63,7 +79,7 @@ impl<T: Default + 'static> Node<T> for ConcatNode<T> {
         self.unique_id
     }
 
-    fn input_names(&self) -> Vec<String> {
+    fn input_hashes(&self) -> Vec<u64> {
         vec![self.o.clone()]
     }
 
@@ -78,7 +94,7 @@ impl<T: Default + 'static> Node<T> for ConcatNode<T> {
         self.next_node = next;
     }
 
-    fn output_names(&self) -> Vec<String> {
+    fn output_hashes(&self) -> Vec<u64> {
         self.inputs.clone()
     }
 

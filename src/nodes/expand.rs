@@ -2,6 +2,7 @@ use std::{any::Any, collections::HashMap};
 
 use crate::{
     nodes::{node::Node, unique_ids::UniqueId},
+    nodes_utils::hash_string,
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -10,10 +11,10 @@ use onnx_extractor::OnnxOperation;
 
 #[derive(Default)]
 pub struct ExpandNode<T: Default> {
-    input: String,
-    shape: String,
+    input: u64,
+    shape: u64,
 
-    o: String,
+    o: u64,
 
     unique_id: UniqueId,
 
@@ -23,23 +24,26 @@ pub struct ExpandNode<T: Default> {
 impl<T: Default> ExpandNode<T> {
     pub fn new(elem: &OnnxOperation) -> Self {
         let mut expand = Self {
-            input: String::new(),
-            shape: String::new(),
-            o: String::new(),
+            input: u64::default(),
+            shape: u64::default(),
+            o: u64::default(),
             unique_id: UniqueId::Expand,
             next_node: None,
         };
-        expand.add_input_strings(elem.inputs()[0].clone(), elem.inputs()[1].clone());
-        expand.add_output_strings(elem.outputs()[0].clone());
+        let input_id = hash_string(&elem.inputs()[0]);
+        let shape_id = hash_string(&elem.inputs()[1]);
+        expand.add_inputs(input_id, shape_id);
+        let o_id = hash_string(&elem.outputs()[0]);
+        expand.add_outputs(o_id);
         expand
     }
 
-    pub fn add_input_strings(&mut self, a: String, b: String) {
+    pub fn add_inputs(&mut self, a: u64, b: u64) {
         self.input = a;
         self.shape = b;
     }
 
-    pub fn add_output_strings(&mut self, o: String) {
+    pub fn add_outputs(&mut self, o: u64) {
         self.o = o;
     }
 }
@@ -71,7 +75,7 @@ impl<T: Default + 'static> Node<T> for ExpandNode<T> {
         self.next_node.as_ref()
     }
 
-    fn input_names(&self) -> Vec<String> {
+    fn input_hashes(&self) -> Vec<u64> {
         vec![self.input.clone(), self.shape.clone()]
     }
 
@@ -91,7 +95,7 @@ impl<T: Default + 'static> Node<T> for ExpandNode<T> {
         }
     }
 
-    fn output_names(&self) -> Vec<String> {
+    fn output_hashes(&self) -> Vec<u64> {
         vec![self.o.clone()]
     }
 

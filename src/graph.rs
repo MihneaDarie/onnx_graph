@@ -1,4 +1,7 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    hash::{DefaultHasher, Hash, Hasher},
+};
 
 use crate::{
     nodes::{
@@ -57,7 +60,7 @@ use saker_rs::activations::Activation;
 
 #[derive(Default)]
 pub struct GraphForm<T: Default> {
-    inputs: Vec<String>,
+    inputs: Vec<u64>,
     // nodes: Vec<Box<dyn Node<T>>>,
     pub nodes: Option<Vec<Box<dyn Node<T>>>>,
 }
@@ -98,22 +101,34 @@ impl<T: Default + 'static> GraphForm<T> {
         onnx.get_output_tensors().for_each(|tensor| {
             let shape = tensor.shape();
             if tensor.data().is_ok() {
-                map.insert(tensor.name().to_string(), TypedArray::from_tensor(&tensor));
+                let mut hasher = DefaultHasher::new();
+                tensor.name().hash(&mut hasher);
+                let id = hasher.finish();
+                map.insert(id, TypedArray::from_tensor(&tensor));
             } else if shape.iter().any(|&d| d < 0) {
-                map.insert(tensor.name().to_string(), TypedArray::Undefined);
+                let mut hasher = DefaultHasher::new();
+                tensor.name().hash(&mut hasher);
+                let id = hasher.finish();
+                map.insert(id, TypedArray::Undefined);
             } else if !shape.is_empty() {
-                map.insert(
-                    tensor.name().to_string(),
-                    TypedArray::from_tensor_empty(tensor, shape),
-                );
+                let mut hasher = DefaultHasher::new();
+                tensor.name().hash(&mut hasher);
+                let id = hasher.finish();
+                map.insert(id, TypedArray::from_tensor_empty(tensor, shape));
             } else {
-                map.insert(tensor.name().to_string(), TypedArray::Undefined);
+                let mut hasher = DefaultHasher::new();
+                tensor.name().hash(&mut hasher);
+                let id = hasher.finish();
+                map.insert(id, TypedArray::Undefined);
             }
         });
 
         onnx.operations().iter().for_each(|s| {
             s.outputs().iter().for_each(|out| {
-                map.insert(out.to_string(), TypedArray::Undefined);
+                let mut hasher = DefaultHasher::new();
+                out.hash(&mut hasher);
+                let id = hasher.finish();
+                map.insert(id, TypedArray::Undefined);
             });
         });
 
@@ -121,21 +136,33 @@ impl<T: Default + 'static> GraphForm<T> {
             let shape = tensor.shape();
 
             if tensor.data().is_ok() {
-                map.insert(tensor.name().to_string(), TypedArray::from_tensor(&tensor));
+                let mut hasher = DefaultHasher::new();
+                tensor.name().hash(&mut hasher);
+                let id = hasher.finish();
+                map.insert(id, TypedArray::from_tensor(&tensor));
             } else if shape.iter().any(|&d| d < 0) {
-                map.insert(tensor.name().to_string(), TypedArray::Undefined);
+                let mut hasher = DefaultHasher::new();
+                tensor.name().hash(&mut hasher);
+                let id = hasher.finish();
+                map.insert(id, TypedArray::Undefined);
             } else if !shape.is_empty() {
-                map.insert(
-                    tensor.name().to_string(),
-                    TypedArray::from_tensor_empty(tensor, shape),
-                );
+                let mut hasher = DefaultHasher::new();
+                tensor.name().hash(&mut hasher);
+                let id = hasher.finish();
+                map.insert(id, TypedArray::from_tensor_empty(tensor, shape));
             } else {
-                map.insert(tensor.name().to_string(), TypedArray::Undefined);
+                let mut hasher = DefaultHasher::new();
+                tensor.name().hash(&mut hasher);
+                let id = hasher.finish();
+                map.insert(id, TypedArray::Undefined);
             }
         });
 
         onnx.get_input_tensors().for_each(|tensor| {
-            map.insert(tensor.name().to_string(), TypedArray::Undefined);
+            let mut hasher = DefaultHasher::new();
+            tensor.name().hash(&mut hasher);
+            let id = hasher.finish();
+            map.insert(id, TypedArray::Undefined);
         });
 
         map
@@ -216,7 +243,17 @@ impl<T: Default + 'static> GraphForm<T> {
         let onnx = OnnxModel::load_from_file(onnx_file_path)?;
 
         let mut ret = Self::new();
-        ret.inputs = onnx.inputs().to_vec();
+        let vec = onnx
+            .inputs()
+            .iter()
+            .map(|name| {
+                let mut hasher = DefaultHasher::new();
+                name.hash(&mut hasher);
+                let id = hasher.finish();
+                id
+            })
+            .collect();
+        ret.inputs = vec;
 
         let mut map = Self::load_data_arrays(&onnx);
 
@@ -229,10 +266,13 @@ impl<T: Default + 'static> GraphForm<T> {
     }
 
     pub fn set_input(&self, omap: &mut TensorMap, input_name: &str, data: TypedArray) {
-        if !self.inputs.contains(&String::from(input_name)) {
+        let mut hasher = DefaultHasher::new();
+        input_name.hash(&mut hasher);
+        let id = hasher.finish();
+        if !self.inputs.contains(&id) {
             println!("No such input called {}", input_name);
         }
-        match omap.get_mut(input_name) {
+        match omap.get_mut(&id) {
             Some(inner) => {
                 *inner = data;
             }
@@ -248,11 +288,17 @@ impl<T: Default + 'static> GraphForm<T> {
         inputs_info: [(&str, TypedArrayDiscriminants, &[usize]); N],
     ) {
         for (name, discriminant, shape) in inputs_info {
-            if !self.inputs.contains(&String::from(name)) {
+            let mut hasher = DefaultHasher::new();
+            name.hash(&mut hasher);
+            let id = hasher.finish();
+            if !self.inputs.contains(&id) {
                 println!("!!! No such input called {name} !!!");
             }
+            let mut hasher = DefaultHasher::new();
+            name.hash(&mut hasher);
+            let id = hasher.finish();
             omap.insert(
-                name.to_string(),
+                id,
                 TypedArray::empty_from_discriminant(discriminant, shape).ensure_contiguous(),
             );
         }
@@ -267,12 +313,12 @@ impl<T: Default + 'static> GraphForm<T> {
     pub fn rearange_for_parallel_branches(&mut self) {}
 
     pub fn optimize(&mut self) {
-        let mut convs: HashSet<String> = HashSet::new();
-        let mut sigmoids: HashMap<String, String> = HashMap::new();
-        let mut fuse_targets: HashMap<String, String> = HashMap::new();
-        let mut mul_to_remove: HashSet<String> = HashSet::new();
+        let mut convs: HashSet<u64> = HashSet::new();
+        let mut sigmoids: HashMap<u64, u64> = HashMap::new();
+        let mut fuse_targets: HashMap<u64, u64> = HashMap::new();
+        let mut mul_to_remove: HashSet<u64> = HashSet::new();
 
-        let mut conv_to_mul: HashMap<String, String> = HashMap::new();
+        let mut conv_to_mul: HashMap<u64, u64> = HashMap::new();
 
         if let Some(nodes) = &self.nodes {
             collect(
@@ -320,27 +366,27 @@ impl<T: Default + 'static> GraphForm<T> {
 
 fn collect<T: Default + 'static>(
     nodes: &[Box<dyn Node<T>>],
-    convs: &mut HashSet<String>,
-    sigmoids: &mut HashMap<String, String>,
-    fuse_targets: &mut HashMap<String, String>,
-    mul_to_remove: &mut HashSet<String>,
+    convs: &mut HashSet<u64>,
+    sigmoids: &mut HashMap<u64, u64>,
+    fuse_targets: &mut HashMap<u64, u64>,
+    mul_to_remove: &mut HashSet<u64>,
 ) {
     for node in nodes {
         match node.get_unique_id() {
             UniqueId::Conv => {
-                convs.insert(node.output_names()[0].clone());
+                convs.insert(node.output_hashes()[0].clone());
             }
             UniqueId::Sigmoid => {
-                let inp = node.input_names()[0].clone();
+                let inp = node.input_hashes()[0].clone();
                 if convs.contains(&inp) {
-                    sigmoids.insert(inp, node.output_names()[0].clone());
+                    sigmoids.insert(inp, node.output_hashes()[0].clone());
                 }
             }
             UniqueId::Mul => {
-                let inputs = node.input_names();
+                let inputs = node.input_hashes();
                 for (conv_out, sigmoid_out) in sigmoids.iter() {
                     if inputs.contains(conv_out) && inputs.contains(sigmoid_out) {
-                        let mul_out = node.output_names()[0].clone();
+                        let mul_out = node.output_hashes()[0].clone();
                         fuse_targets.insert(sigmoid_out.clone(), mul_out.clone());
                         mul_to_remove.insert(mul_out);
                     }
@@ -357,18 +403,18 @@ fn collect<T: Default + 'static>(
 
 fn apply<T: Default + 'static>(
     nodes: &mut [Box<dyn Node<T>>],
-    conv_to_mul: &HashMap<String, String>,
-    fuse_targets: &HashMap<String, String>,
-    mul_to_remove: &HashSet<String>,
+    conv_to_mul: &HashMap<u64, u64>,
+    fuse_targets: &HashMap<u64, u64>,
+    mul_to_remove: &HashSet<u64>,
 ) {
     for node in nodes.iter_mut() {
         if node.get_unique_id() == UniqueId::Conv {
-            let conv_out = node.output_names()[0].clone();
+            let conv_out = node.output_hashes()[0].clone();
             if let Some(mul_out) = conv_to_mul.get(&conv_out)
                 && let Some(conv) = node.as_any_mut().downcast_mut::<ConvNode<T>>()
             {
                 conv.set_activation(Activation::Silu);
-                conv.add_output_strings(mul_out.clone());
+                conv.add_outputs(mul_out.clone());
             }
         }
 
@@ -380,7 +426,7 @@ fn apply<T: Default + 'static>(
         let mut i = 0;
         while i < children.len() {
             let uid = children[i].get_unique_id();
-            let out = children[i].output_names()[0].clone();
+            let out = children[i].output_hashes()[0].clone();
 
             let should_remove = (uid == UniqueId::Sigmoid && fuse_targets.contains_key(&out))
                 || (uid == UniqueId::Mul && mul_to_remove.contains(&out));

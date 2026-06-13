@@ -11,9 +11,9 @@ use crate::{
 
 #[derive(Default)]
 pub struct SiluNode<T: Default> {
-    pub x: String,
+    pub x: u64,
 
-    pub o: String,
+    pub o: u64,
 
     unique_id: UniqueId,
 
@@ -23,8 +23,8 @@ pub struct SiluNode<T: Default> {
 impl<T: Default> SiluNode<T> {
     pub fn new() -> Self {
         Self {
-            x: String::new(),
-            o: String::new(),
+            x: u64::default(),
+            o: u64::default(),
             unique_id: UniqueId::Silu,
             next_node: None,
         }
@@ -54,7 +54,7 @@ impl<T: Default + 'static> Node<T> for SiluNode<T> {
         self.next_node = next;
     }
 
-    fn input_names(&self) -> Vec<String> {
+    fn input_hashes(&self) -> Vec<u64> {
         vec![self.x.clone()]
     }
 
@@ -72,7 +72,7 @@ impl<T: Default + 'static> Node<T> for SiluNode<T> {
         self.next_node.as_ref()
     }
 
-    fn output_names(&self) -> Vec<String> {
+    fn output_hashes(&self) -> Vec<u64> {
         vec![self.o.clone()]
     }
 

@@ -1,8 +1,12 @@
-use std::any::Any;
+use std::{
+    any::Any,
+    hash::{DefaultHasher, Hash, Hasher},
+};
 
 use crate::{
     impl_typed_binop,
     nodes::{node::Node, unique_ids::UniqueId},
+    nodes_utils::hash_string,
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -13,10 +17,10 @@ use saker_rs::linarg::operations::add_maybe_simd;
 
 #[derive(Default)]
 pub struct AddNode<T: Default> {
-    a: String,
-    b: String,
+    a: u64,
+    b: u64,
 
-    o: String,
+    o: u64,
 
     unique_id: UniqueId,
 
@@ -26,23 +30,26 @@ pub struct AddNode<T: Default> {
 impl<T: Default> AddNode<T> {
     pub fn new(elem: &OnnxOperation) -> Self {
         let mut add = Self {
-            a: String::new(),
-            b: String::new(),
-            o: String::new(),
+            a: u64::default(),
+            b: u64::default(),
+            o: u64::default(),
             unique_id: UniqueId::Add,
             next_node: None,
         };
-        add.add_input_strings(elem.inputs()[0].clone(), elem.inputs()[1].clone());
-        add.add_output_strings(elem.outputs()[0].clone());
+        let aid = hash_string(&elem.inputs()[0]);
+        let bid = hash_string(&elem.inputs()[1]);
+        add.add_inputs(aid, bid);
+        let oid = hash_string(&elem.outputs()[0]);
+        add.add_outputs(oid);
         add
     }
 
-    pub fn add_input_strings(&mut self, a: String, b: String) {
+    pub fn add_inputs(&mut self, a: u64, b: u64) {
         self.a = a;
         self.b = b;
     }
 
-    pub fn add_output_strings(&mut self, o: String) {
+    pub fn add_outputs(&mut self, o: u64) {
         self.o = o;
     }
 }
@@ -70,11 +77,11 @@ impl<T: Default + 'static> Node<T> for AddNode<T> {
         self.next_node = next;
     }
 
-    fn output_names(&self) -> Vec<String> {
+    fn output_hashes(&self) -> Vec<u64> {
         vec![self.o.clone()]
     }
 
-    fn input_names(&self) -> Vec<String> {
+    fn input_hashes(&self) -> Vec<u64> {
         vec![self.a.clone(), self.b.clone()]
     }
 

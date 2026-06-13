@@ -3,6 +3,7 @@ use std::{any::Any, collections::HashMap};
 use crate::{
     impl_typed_singleopfunction_with_boolean_ouput,
     nodes::{node::Node, unique_ids::UniqueId},
+    nodes_utils::hash_string,
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -11,9 +12,9 @@ use onnx_extractor::OnnxOperation;
 
 #[derive(Default)]
 pub struct IsNanNode<T: Default> {
-    x: String,
+    x: u64,
 
-    o: String,
+    o: u64,
 
     unique_id: UniqueId,
 
@@ -23,21 +24,23 @@ pub struct IsNanNode<T: Default> {
 impl<T: Default> IsNanNode<T> {
     pub fn new(elem: &OnnxOperation) -> Self {
         let mut is_nan = Self {
-            x: String::new(),
-            o: String::new(),
+            x: u64::default(),
+            o: u64::default(),
             unique_id: UniqueId::IsNan,
             next_node: None,
         };
-        is_nan.add_input_strings(elem.inputs()[0].clone());
-        is_nan.add_output_strings(elem.outputs()[0].clone());
+        let x_id = hash_string(&elem.inputs()[0]);
+        let o_id = hash_string(&elem.outputs()[0]);
+        is_nan.add_inputs(x_id);
+        is_nan.add_outputs(o_id);
         is_nan
     }
 
-    pub fn add_input_strings(&mut self, x: String) {
+    pub fn add_inputs(&mut self, x: u64) {
         self.x = x;
     }
 
-    pub fn add_output_strings(&mut self, o: String) {
+    pub fn add_outputs(&mut self, o: u64) {
         self.o = o;
     }
 }
@@ -70,11 +73,11 @@ impl<T: Default + 'static> Node<T> for IsNanNode<T> {
         }
     }
 
-    fn output_names(&self) -> Vec<String> {
+    fn output_hashes(&self) -> Vec<u64> {
         vec![self.o.clone()]
     }
 
-    fn input_names(&self) -> Vec<String> {
+    fn input_hashes(&self) -> Vec<u64> {
         vec![self.x.clone()]
     }
 

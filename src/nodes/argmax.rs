@@ -1,7 +1,12 @@
-use std::{any::Any, collections::HashMap};
+use std::{
+    any::Any,
+    collections::HashMap,
+    hash::{DefaultHasher, Hash, Hasher},
+};
 
 use crate::{
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
+    nodes_utils::hash_string,
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -12,8 +17,8 @@ use onnx_extractor::{AttributeValue, OnnxOperation};
 
 #[derive(Default)]
 pub struct ArgMaxNode<T: Default> {
-    data: String,
-    o: String,
+    data: u64,
+    o: u64,
 
     axis: i64,
     keepdims: bool,
@@ -27,8 +32,8 @@ impl<T: Default> FromOnnxOperation for ArgMaxNode<T> {
     fn from_onnx_operation(elem: &OnnxOperation) -> Result<Self> {
         let attrs = &elem.attributes();
         let mut argmax = Self {
-            data: String::new(),
-            o: String::new(),
+            data: u64::default(),
+            o: u64::default(),
             axis: attrs.get("axis").and_then(|v| v.as_int()).unwrap_or(0),
             keepdims: attrs.get("keepdims").and_then(|v| v.as_int()).unwrap_or(1) != 0,
             select_last_index: attrs
@@ -39,18 +44,21 @@ impl<T: Default> FromOnnxOperation for ArgMaxNode<T> {
             unique_id: UniqueId::ArgMax,
             next_node: None,
         };
-        argmax.add_input_strings(elem.inputs()[0].clone());
-        argmax.add_output_strings(elem.outputs()[0].clone());
+        let data_id = hash_string(&elem.inputs()[0]);
+        argmax.add_inputs(data_id);
+
+        let o_id = hash_string(&elem.outputs()[0]);
+        argmax.add_outputs(o_id);
         Ok(argmax)
     }
 }
 
 impl<T: Default> ArgMaxNode<T> {
-    pub fn add_input_strings(&mut self, data: String) {
+    pub fn add_inputs(&mut self, data: u64) {
         self.data = data;
     }
 
-    pub fn add_output_strings(&mut self, o: String) {
+    pub fn add_outputs(&mut self, o: u64) {
         self.o = o;
     }
 }
@@ -80,11 +88,11 @@ impl<T: Default + 'static> Node<T> for ArgMaxNode<T> {
         self.next_node = next;
     }
 
-    fn input_names(&self) -> Vec<String> {
+    fn input_hashes(&self) -> Vec<u64> {
         vec![self.data.clone()]
     }
 
-    fn output_names(&self) -> Vec<String> {
+    fn output_hashes(&self) -> Vec<u64> {
         vec![self.o.clone()]
     }
 

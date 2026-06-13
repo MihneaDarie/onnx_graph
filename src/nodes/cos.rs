@@ -3,6 +3,7 @@ use std::any::Any;
 use crate::{
     impl_typed_singleopfunction_with_the_same_output_type_as_the_output,
     nodes::{node::Node, unique_ids::UniqueId},
+    nodes_utils::hash_string,
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -10,9 +11,9 @@ use onnx_extractor::OnnxOperation;
 
 #[derive(Default)]
 pub struct CosNode<T: Default> {
-    x: String,
+    x: u64,
 
-    o: String,
+    o: u64,
 
     unique_id: UniqueId,
 
@@ -22,21 +23,23 @@ pub struct CosNode<T: Default> {
 impl<T: Default> CosNode<T> {
     pub fn new(elem: &OnnxOperation) -> Self {
         let mut cosinus = Self {
-            x: String::new(),
-            o: String::new(),
+            x: u64::default(),
+            o: u64::default(),
             unique_id: UniqueId::Cos,
             next_node: None,
         };
-        cosinus.add_input_strings(elem.inputs()[0].clone());
-        cosinus.add_output_strings(elem.outputs()[0].clone());
+        let x_id = hash_string(&elem.inputs()[0]);
+        let o_id = hash_string(&elem.outputs()[0]);
+        cosinus.add_inputs(x_id);
+        cosinus.add_outputs(o_id);
         cosinus
     }
 
-    pub fn add_input_strings(&mut self, x: String) {
+    pub fn add_inputs(&mut self, x: u64) {
         self.x = x;
     }
 
-    pub fn add_output_strings(&mut self, o: String) {
+    pub fn add_outputs(&mut self, o: u64) {
         self.o = o;
     }
 }
@@ -69,11 +72,11 @@ impl<T: Default + 'static> Node<T> for CosNode<T> {
         }
     }
 
-    fn output_names(&self) -> Vec<String> {
+    fn output_hashes(&self) -> Vec<u64> {
         vec![self.o.clone()]
     }
 
-    fn input_names(&self) -> Vec<String> {
+    fn input_hashes(&self) -> Vec<u64> {
         vec![self.x.clone()]
     }
 

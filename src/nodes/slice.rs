@@ -2,6 +2,7 @@ use std::any::Any;
 
 use crate::{
     nodes::{node::Node, unique_ids::UniqueId},
+    nodes_utils::hash_string,
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -9,12 +10,12 @@ use onnx_extractor::OnnxOperation;
 
 #[derive(Default)]
 pub struct SliceNode<T: Default> {
-    data: String,
-    o: String,
+    data: u64,
+    o: u64,
 
-    starts: String,
-    ends: String,
-    axes: String,
+    starts: u64,
+    ends: u64,
+    axes: u64,
 
     unique_id: UniqueId,
 
@@ -24,32 +25,33 @@ pub struct SliceNode<T: Default> {
 impl<T: Default> SliceNode<T> {
     pub fn new(elem: &OnnxOperation) -> Self {
         let mut slice = Self {
-            data: String::new(),
-            starts: String::new(),
-            ends: String::new(),
-            axes: String::new(),
-            o: String::new(),
+            data: u64::default(),
+            starts: u64::default(),
+            ends: u64::default(),
+            axes: u64::default(),
+            o: u64::default(),
             unique_id: UniqueId::Slice,
             next_node: None,
         };
         let input = &elem.inputs();
-        slice.add_input_strings(
-            input[0].clone(),
-            input[1].clone(),
-            input[2].clone(),
-            input[3].clone(),
-        );
-        slice.add_output_strings(elem.outputs()[0].clone());
+        let data_id = hash_string(&input[0]);
+        let starts_id = hash_string(&input[1]);
+        let ends_id = hash_string(&input[2]);
+        let axes_id = hash_string(&input[3]);
+        let o_id = hash_string(&elem.outputs()[0]);
+
+        slice.add_inputs(data_id, starts_id, ends_id, axes_id);
+        slice.add_outputs(o_id);
         slice
     }
-    pub fn add_input_strings(&mut self, data: String, starts: String, ends: String, axes: String) {
+    pub fn add_inputs(&mut self, data: u64, starts: u64, ends: u64, axes: u64) {
         self.data = data;
         self.starts = starts;
         self.ends = ends;
         self.axes = axes;
     }
 
-    pub fn add_output_strings(&mut self, o: String) {
+    pub fn add_outputs(&mut self, o: u64) {
         self.o = o;
     }
 }
@@ -89,11 +91,11 @@ impl<T: Default + 'static> Node<T> for SliceNode<T> {
         }
     }
 
-    fn output_names(&self) -> Vec<String> {
+    fn output_hashes(&self) -> Vec<u64> {
         vec![self.o.clone()]
     }
 
-    fn input_names(&self) -> Vec<String> {
+    fn input_hashes(&self) -> Vec<u64> {
         vec![
             self.data.clone(),
             self.starts.clone(),

@@ -1,7 +1,12 @@
-use std::{any::Any, str::FromStr};
+use std::{
+    any::Any,
+    hash::{DefaultHasher, Hash, Hasher},
+    str::FromStr,
+};
 
 use crate::{
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
+    nodes_utils::hash_string,
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -41,11 +46,11 @@ impl FromStr for AutoPad {
 
 #[derive(Default)]
 pub struct ConvNode<T: Default> {
-    x: String,
-    w: String,
-    b: Option<String>,
+    x: u64,
+    w: u64,
+    b: Option<u64>,
 
-    o: String,
+    o: u64,
 
     activation: Activation,
 
@@ -65,10 +70,10 @@ impl<T: Default> FromOnnxOperation for ConvNode<T> {
     fn from_onnx_operation(elem: &OnnxOperation) -> anyhow::Result<Self> {
         let attrs = &elem.attributes();
         let mut conv = Self {
-            x: String::new(),
-            w: String::new(),
+            x: u64::default(),
+            w: u64::default(),
             b: None,
-            o: String::new(),
+            o: u64::default(),
             auto_pad: {
                 match attrs.get("auto_pad") {
                     Some(av) => {
@@ -137,9 +142,16 @@ impl<T: Default> FromOnnxOperation for ConvNode<T> {
             next_node: None,
         };
         let inputs = &elem.inputs();
-        let b = inputs.get(2).cloned();
-        conv.add_input_strings(inputs[0].clone(), inputs[1].clone(), b);
-        conv.add_output_strings(elem.outputs()[0].clone());
+        let b = inputs.get(2).cloned().and_then(|val| {
+            let id = hash_string(&val);
+            Some(id)
+        });
+
+        let x_id = hash_string(&elem.inputs()[0]);
+        let w_id = hash_string(&elem.inputs()[1]);
+        conv.add_inputs(x_id, w_id, b);
+        let o_id = hash_string(&elem.outputs()[0]);
+        conv.add_outputs(o_id);
         Ok(conv)
     }
 }
@@ -155,10 +167,10 @@ impl<T: Default> ConvNode<T> {
         activation: Activation,
     ) -> Self {
         Self {
-            x: String::new(),
-            w: String::new(),
+            x: u64::default(),
+            w: u64::default(),
             b: None,
-            o: String::new(),
+            o: u64::default(),
             auto_pad: AutoPad::from_str(auto_pad).unwrap(),
             kernel_shape,
             group,
@@ -171,13 +183,13 @@ impl<T: Default> ConvNode<T> {
         }
     }
 
-    pub fn add_input_strings(&mut self, x: String, w: String, b: Option<String>) {
+    pub fn add_inputs(&mut self, x: u64, w: u64, b: Option<u64>) {
         self.x = x;
         self.w = w;
         self.b = b;
     }
 
-    pub fn add_output_strings(&mut self, o: String) {
+    pub fn add_outputs(&mut self, o: u64) {
         self.o = o;
     }
 
@@ -209,12 +221,12 @@ impl<T: Default + 'static> Node<T> for ConvNode<T> {
         self.next_node = next;
     }
 
-    fn input_names(&self) -> Vec<String> {
-        let b = self.b.clone().unwrap_or(String::from(""));
+    fn input_hashes(&self) -> Vec<u64> {
+        let b = self.b.clone().unwrap_or_default();
         vec![self.x.clone(), self.w.clone(), b]
     }
 
-    fn output_names(&self) -> Vec<String> {
+    fn output_hashes(&self) -> Vec<u64> {
         vec![self.o.clone()]
     }
 
@@ -223,8 +235,8 @@ impl<T: Default + 'static> Node<T> for ConvNode<T> {
     }
 
     fn execute(&self, omap: &mut TensorMap) {
-        let def = &String::from("");
-        let b = self.b.as_ref().unwrap_or(def);
+        let zero = 0;
+        let b = self.b.as_ref().unwrap_or(&zero);
 
         let [x, w, b, o] = omap.get_disjoint_mut([&self.x, &self.w, b, &self.o]);
         let x = &*x.unwrap();

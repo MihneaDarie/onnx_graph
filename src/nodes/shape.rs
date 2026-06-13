@@ -2,6 +2,7 @@ use std::{any::Any, collections::HashMap};
 
 use crate::{
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
+    nodes_utils::hash_string,
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -12,8 +13,8 @@ use onnx_extractor::{AttributeValue, OnnxOperation};
 
 #[derive(Default)]
 pub struct ShapeNode<T: Default> {
-    data: String,
-    o: String,
+    data: u64,
+    o: u64,
 
     start: i64,
     end: Option<i64>,
@@ -26,25 +27,27 @@ impl<T: Default> FromOnnxOperation for ShapeNode<T> {
     fn from_onnx_operation(elem: &OnnxOperation) -> Result<Self> {
         let attrs = &elem.attributes();
         let mut shape = Self {
-            data: String::new(),
-            o: String::new(),
+            data: u64::default(),
+            o: u64::default(),
             start: attrs.get("start").and_then(|v| v.as_int()).unwrap_or(0),
             end: attrs.get("end").and_then(|v| v.as_int()),
             unique_id: UniqueId::Shape,
             next_node: None,
         };
-        shape.add_input_strings(elem.inputs()[0].clone());
-        shape.add_output_strings(elem.outputs()[0].clone());
+        let x_id = hash_string(&elem.inputs()[0]);
+        let o_id = hash_string(&elem.outputs()[0]);
+        shape.add_inputs(x_id);
+        shape.add_outputs(o_id);
         Ok(shape)
     }
 }
 
 impl<T: Default> ShapeNode<T> {
-    pub fn add_input_strings(&mut self, data: String) {
+    pub fn add_inputs(&mut self, data: u64) {
         self.data = data;
     }
 
-    pub fn add_output_strings(&mut self, o: String) {
+    pub fn add_outputs(&mut self, o: u64) {
         self.o = o;
     }
 }
@@ -74,11 +77,11 @@ impl<T: Default + 'static> Node<T> for ShapeNode<T> {
         self.next_node = next;
     }
 
-    fn input_names(&self) -> Vec<String> {
+    fn input_hashes(&self) -> Vec<u64> {
         vec![self.data.clone()]
     }
 
-    fn output_names(&self) -> Vec<String> {
+    fn output_hashes(&self) -> Vec<u64> {
         vec![self.o.clone()]
     }
 
