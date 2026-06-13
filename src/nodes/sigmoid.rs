@@ -67,13 +67,13 @@ impl<T: Default + 'static> Node<T> for SigmoidNode<T> {
 
     fn execute(&self, omap: &mut TensorMap) {
         let [x, o] = omap.get_disjoint_mut([&self.x, &self.o]);
-        let x = &*x.unwrap();
+        let x = x.map(|val| {&*val});
 
-        match o {
-            Some(result) => {
+        match (x, o) {
+            (Some(x), Some(result)) => {
                 x.sigmoid(result).unwrap();
             }
-            None => panic!("SigmoidNode: missing input {}", self.x),
+            _ => panic!("SigmoidNode: missing input {}", self.x),
         }
     }
 
