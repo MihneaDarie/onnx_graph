@@ -1,7 +1,7 @@
 use std::any::Any;
 
 use onnx_extractor::OnnxOperation;
-use saker_rs::linarg::operations::apply_leaky_relu;
+use saker_rs::linarg::{operations::apply_leaky_relu, utils::{leaky_relu_f32, leaky_relu_f64}};
 
 use crate::{
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
@@ -147,15 +147,6 @@ impl<T: Default + 'static> Node<T> for LeakyReluNode<T> {
     }
 }
 
-#[inline(always)]
-pub fn leaky_relu_f64(x: f64, alpha: f32) -> f64 {
-    x.max(x * alpha as f64)
-}
-
-#[inline(always)]
-pub fn leaky_relu_f32(x: f32, alpha: f32) -> f32 {
-    x.max(x * alpha)
-}
 
 impl TypedArray {
     pub fn leaky_relu(&self, alpha: f32, o: &mut TypedArray) -> anyhow::Result<()> {
@@ -216,7 +207,7 @@ impl TypedArray {
                 let dst = o.as_slice_memory_order_mut().unwrap();
                 dst.par_iter_mut()
                     .zip(src.par_iter())
-                    .for_each(|(d, s)| *d = leaky_relu_f64(*s, alpha));
+                    .for_each(|(d, s)| *d = leaky_relu_f64(*s, alpha as f64));
             }
             _ => {
                 return Err(anyhow::anyhow!(

@@ -17,10 +17,6 @@ use saker_rs::activations::Activation;
 use saker_rs::linarg::operations::sgemm_bias_parallel;
 
 thread_local! {
-    static POOL_TMP: RefCell<Vec<f32>> = const {RefCell::new(Vec::new())};
-}
-
-thread_local! {
     static IM2COL_BUF_POOL: std::cell::RefCell<Vec<Vec<f32>>> = const {std::cell::RefCell::new(Vec::new())};
 }
 
@@ -136,7 +132,7 @@ impl TypedArray {
     #[inline(always)]
     pub fn run_func_with_f32_buffer<R>(buf_size: usize, f: impl FnOnce(&mut [f32]) -> R) -> R {
         IM2COL_BUF_POOL.with(|cell| {
-            let mut buf = cell.borrow_mut().pop().unwrap_or_default();
+            let mut buf = cell.borrow_mut().pop().unwrap_or(Vec::with_capacity(buf_size));
 
             if buf.len() < buf_size {
                 buf.resize(buf_size, 0.0f32);

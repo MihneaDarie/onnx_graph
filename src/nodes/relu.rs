@@ -1,7 +1,7 @@
 use std::any::Any;
 
 use onnx_extractor::OnnxOperation;
-use saker_rs::linarg::operations::apply_relu;
+use saker_rs::linarg::{operations::apply_relu, utils::{relu_f32, relu_f64}};
 
 use crate::{
     call_activation_source_to_destination,
@@ -119,16 +119,6 @@ impl<T: Default + 'static> Node<T> for ReluNode<T> {
             }
         }
     }
-}
-
-#[inline(always)]
-pub fn relu_f64(x: f64) -> f64 {
-    x.max(0.0f64)
-}
-
-#[inline(always)]
-pub fn relu_f32(x: f32) -> f32 {
-    x.max(0.0f32)
 }
 
 impl TypedArray {

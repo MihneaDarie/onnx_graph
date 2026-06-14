@@ -188,7 +188,7 @@ impl TypedArray {
                 match (a_ndim, b_ndim) {
                     (1, 1) => {
                         let k = a_shape[0];
-                        assert_eq!(k, b_shape[0]);
+
                         let needs_alloc = match &*o {
                             TypedArray::Float(out) => out.shape() != [1],
                             _ => true,
@@ -207,7 +207,7 @@ impl TypedArray {
                     (2, 1) => {
                         let m = a_shape[0];
                         let k = a_shape[1];
-                        assert_eq!(k, b_shape[0]);
+
                         let out_shape = [m];
                         let needs_alloc = match &*o {
                             TypedArray::Float(out) => out.shape() != out_shape,
@@ -234,7 +234,7 @@ impl TypedArray {
                     (1, 2) => {
                         let k = a_shape[0];
                         let n = b_shape[1];
-                        assert_eq!(k, b_shape[0]);
+
                         let out_shape = [n];
                         let needs_alloc = match &*o {
                             TypedArray::Float(out) => out.shape() != out_shape,
@@ -262,7 +262,6 @@ impl TypedArray {
                         let m = a_shape[0];
                         let k = a_shape[1];
                         let n = b_shape[1];
-                        assert_eq!(k, b_shape[0]);
 
                         let out_shape = [m, n];
                         let needs_alloc = match &*o {
@@ -286,7 +285,6 @@ impl TypedArray {
                         let m = a_shape[a_ndim - 2];
                         let k = a_shape[a_ndim - 1];
                         let n = b_shape[b_ndim - 1];
-                        assert_eq!(k, b_shape[b_ndim - 2]);
 
                         let a_batch = &a_shape[..a_ndim - 2];
                         let b_batch = &b_shape[..b_ndim - 2];
