@@ -25,8 +25,8 @@ macro_rules! call_activation_source_to_destination {
             }
 
             if let (TypedArray::Float(i), TypedArray::Float(o), Some(func)) = (self, &mut *o, $f32_simd_option) {
-                let src = i.as_slice_memory_order().unwrap();
-                let dst = o.as_slice_memory_order_mut().unwrap();
+                let src = crate::nodes_utils::slice_memory_order_view(i, stringify!($func_name))?;
+                let dst = crate::nodes_utils::slice_memory_order_mut_or_fix(o, stringify!($func_name))?;
                 func(dst, src);
                 return Ok(());
             }
@@ -34,8 +34,8 @@ macro_rules! call_activation_source_to_destination {
             match (self, &mut *o) {
                 $(
                     (TypedArray::$variant(a), TypedArray::$variant(o)) => {
-                        let src = a.as_slice_memory_order().unwrap();
-                        let dst = o.as_slice_memory_order_mut().unwrap();
+                        let src = crate::nodes_utils::slice_memory_order_view(a, stringify!($func_name))?;
+                        let dst = crate::nodes_utils::slice_memory_order_mut_or_fix(o, stringify!($func_name))?;
                         dst.par_iter_mut()
                             .zip(src.par_iter())
                             .for_each(|(d, s)| *d = $specific_func(*s));

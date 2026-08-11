@@ -2,7 +2,7 @@ use std::{any::Any, collections::HashMap};
 
 use crate::{
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
-    nodes_utils::hash_string,
+    nodes_utils::{hash_string, slice_memory_order_mut_or_fix, slice_memory_order_or_fix},
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -112,18 +112,28 @@ impl<T: Default + 'static> Node<T> for ReduceMeanNode<T> {
         self.next_node.as_ref()
     }
 
-    fn execute(&self, omap: &mut TensorMap) {
-        let axes = &self.axes.clone().unwrap_or_default();
-        let [data, axes, o] = omap.get_disjoint_mut([&self.data, axes, &self.o]);
-        let data = data.map(|inner| &*inner);
-        let axes = axes.map(|inner| &*inner);
-
-        match (data, self.keepdims, self.noop_with_empty_axes, o) {
-            (Some(data), Some(keepdims), Some(noop), Some(result)) => data
-                .reduce_mean(axes, keepdims != 0, noop != 0, result)
-                .unwrap(),
-            _ => panic!("ReduceMeanNode: missing output {}", self.o),
+    fn execute(&self, omap: &mut TensorMap) -> anyhow::Result<()> {
+        let axes_key = self.axes.clone().unwrap_or_default();
+        let [data, axes, o] = omap.get_disjoint_mut([&self.data, &axes_key, &self.o]);
+        crate::debug_check_tensors!("ReduceMeanNode", data => self.data, o => self.o);
+        if self.axes.is_some() {
+            crate::debug_check_tensors!("ReduceMeanNode", axes => axes_key);
         }
+        let axes_tensor = if self.axes.is_some() {
+            axes.map(|val| &*val)
+        } else {
+            None
+        };
+        if let (Some(data), Some(out)) = (data, o) {
+            let keepdims = self
+                .keepdims
+                .ok_or_else(|| anyhow::anyhow!("ReduceMeanNode: missing keepdims"))?;
+            let noop = self
+                .noop_with_empty_axes
+                .ok_or_else(|| anyhow::anyhow!("ReduceMeanNode: missing noop_with_empty_axes"))?;
+            data.reduce_mean(axes_tensor, keepdims != 0, noop != 0, out)?;
+        }
+        Ok(())
     }
 
     fn print(&self) {
@@ -136,9 +146,9 @@ impl<T: Default + 'static> Node<T> for ReduceMeanNode<T> {
         }
     }
 
-    fn determine_output_shape(&mut self, omap: &mut TensorMap) {
-        let axes = &self.axes.clone().unwrap_or_default();
-        let [data, axes, o] = omap.get_disjoint_mut([&self.data, axes, &self.o]);
+    fn determine_output_shape(&mut self, omap: &mut TensorMap) -> anyhow::Result<()> {
+        let axes_key = self.axes.clone().unwrap_or_default();
+        let [data, axes, o] = omap.get_disjoint_mut([&self.data, &axes_key, &self.o]);
         let data = data.map(|inner| &*inner);
         let axes = axes.map(|inner| &*inner);
 
@@ -146,7 +156,14 @@ impl<T: Default + 'static> Node<T> for ReduceMeanNode<T> {
             let out_shape = {
                 let in_shape = match data.shape() {
                     Some(s) => s.to_vec(),
-                    None => return,
+                    None => {
+                        if let Some(list) = &mut self.next_node {
+                            for next in list {
+                                next.determine_output_shape(omap)?;
+                            }
+                        }
+                        return Ok(());
+                    }
                 };
                 let ndim = in_shape.len();
 
@@ -165,7 +182,12 @@ impl<T: Default + 'static> Node<T> for ReduceMeanNode<T> {
                         if let Some(noop_with_empty_axes) = self.noop_with_empty_axes
                             && noop_with_empty_axes != 0
                         {
-                            return;
+                            if let Some(list) = &mut self.next_node {
+                                for next in list {
+                                    next.determine_output_shape(omap)?;
+                                }
+                            }
+                            return Ok(());
                         }
                         (0..ndim).collect()
                     }
@@ -192,13 +214,14 @@ impl<T: Default + 'static> Node<T> for ReduceMeanNode<T> {
             if let Some(o) = o {
                 *o = TypedArray::empty_with_others_type(data, &out_shape);
             }
+        }
 
-            if let Some(list) = &mut self.next_node {
-                for next in list {
-                    next.determine_output_shape(omap);
-                }
+        if let Some(list) = &mut self.next_node {
+            for next in list {
+                next.determine_output_shape(omap)?;
             }
         }
+        Ok(())
     }
 }
 
@@ -240,8 +263,9 @@ impl TypedArray {
                                     .ensure_contiguous();
                             }
                             if let TypedArray::$variant(out) = o {
-                                let dst = out.as_slice_memory_order_mut().unwrap();
-                                let src = $a.as_slice_memory_order().unwrap();
+                                let mut src_arr = $a.clone();
+                                let dst = slice_memory_order_mut_or_fix(out, "reduce_mean")?;
+                                let src = slice_memory_order_or_fix(&mut src_arr, "reduce_mean")?;
                                 dst.copy_from_slice(src);
                             }
                             return Ok(());
@@ -273,7 +297,7 @@ impl TypedArray {
                 }
 
                 if let TypedArray::$variant(out) = o {
-                    let dst = out.as_slice_memory_order_mut().unwrap();
+                    let dst = slice_memory_order_mut_or_fix(out, "reduce_mean")?;
 
                     let mut result = $a.clone();
                     let mut sorted_axes = axes_vec.clone();
@@ -287,10 +311,12 @@ impl TypedArray {
 
                     if keepdims {
                         let result_reshaped = result.into_shape_with_order(IxDyn(&out_shape))?;
-                        let src = result_reshaped.as_slice_memory_order().unwrap();
+                        let mut src_arr = result_reshaped.clone();
+                        let src = slice_memory_order_or_fix(&mut src_arr, "reduce_mean")?;
                         dst.copy_from_slice(src);
                     } else {
-                        let src = result.as_slice_memory_order().unwrap();
+                        let mut src_arr = result.clone();
+                        let src = slice_memory_order_or_fix(&mut src_arr, "reduce_mean")?;
                         dst[..src.len()].copy_from_slice(src);
                     }
                 }

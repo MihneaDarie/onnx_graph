@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     nodes::{node::Node, unique_ids::UniqueId},
-    nodes_utils::hash_string,
+    nodes_utils::{hash_string, slice_memory_order_mut_or_fix, slice_memory_order_or_fix},
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -107,18 +107,22 @@ impl<T: Default + 'static> Node<T> for WhereNode<T> {
         self.next_node.as_ref()
     }
 
-    fn execute(&self, omap: &mut TensorMap) {
+    fn execute(&self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [c, x, y, o] = omap.get_disjoint_mut([&self.c, &self.x, &self.y, &self.o]);
-        let c = &*c.unwrap();
-        let x = &*x.unwrap();
-        let y = &*y.unwrap();
-
-        match o {
-            Some(out) => {
-                TypedArray::where_op(c, x, y, out).unwrap();
-            }
-            _ => panic!("WhereNode: missing output {}", self.o),
+        crate::debug_check_tensors!(
+            "WhereNode",
+            c => self.c,
+            x => self.x,
+            y => self.y,
+            o => self.o,
+        );
+        let c = c.map(|val| &*val);
+        let x = x.map(|val| &*val);
+        let y = y.map(|val| &*val);
+        if let (Some(c), Some(x), Some(y), Some(out)) = (c, x, y, o) {
+            TypedArray::where_op(c, x, y, out)?;
         }
+        Ok(())
     }
 
     fn output_hashes(&self) -> Vec<u64> {
@@ -150,7 +154,7 @@ impl<T: Default + 'static> Node<T> for WhereNode<T> {
         }
     }
 
-    fn determine_output_shape(&mut self, omap: &mut TensorMap) {
+    fn determine_output_shape(&mut self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [c, x, y, o] = omap.get_disjoint_mut([&self.c, &self.x, &self.y, &self.o]);
         let c = c.map(|arr| &*arr);
         let y = y.map(|arr| &*arr);
@@ -169,9 +173,10 @@ impl<T: Default + 'static> Node<T> for WhereNode<T> {
 
         if let Some(list) = &mut self.next_node {
             for next in list {
-                next.determine_output_shape(omap);
+                next.determine_output_shape(omap)?;
             }
         }
+        Ok(())
     }
 }
 
@@ -246,10 +251,13 @@ impl TypedArray {
                             && y_arr.shape() == out_shape.as_slice();
 
                         if no_broadcast {
-                            let out_slice = out_arr.as_slice_memory_order_mut().unwrap();
-                            let c_slice = cond.as_slice_memory_order().unwrap();
-                            let x_slice = x_arr.as_slice_memory_order().unwrap();
-                            let y_slice = y_arr.as_slice_memory_order().unwrap();
+                            let mut cond_arr = cond.clone();
+                            let mut x_arr = x_arr.clone();
+                            let mut y_arr = y_arr.clone();
+                            let out_slice = slice_memory_order_mut_or_fix(out_arr, "where")?;
+                            let c_slice = slice_memory_order_or_fix(&mut cond_arr, "where")?;
+                            let x_slice = slice_memory_order_or_fix(&mut x_arr, "where")?;
+                            let y_slice = slice_memory_order_or_fix(&mut y_arr, "where")?;
 
                             out_slice.iter_mut()
                                 .zip(c_slice.iter())
@@ -259,9 +267,15 @@ impl TypedArray {
                                     *o = if *c { *xv } else { *yv };
                                 });
                         } else {
-                            let cond_b = cond.broadcast(IxDyn(&out_shape)).unwrap();
-                            let x_b = x_arr.broadcast(IxDyn(&out_shape)).unwrap();
-                            let y_b = y_arr.broadcast(IxDyn(&out_shape)).unwrap();
+                            let cond_b = cond
+                                .broadcast(IxDyn(&out_shape))
+                                .ok_or_else(|| anyhow::anyhow!("Where: condition broadcast failed"))?;
+                            let x_b = x_arr
+                                .broadcast(IxDyn(&out_shape))
+                                .ok_or_else(|| anyhow::anyhow!("Where: x broadcast failed"))?;
+                            let y_b = y_arr
+                                .broadcast(IxDyn(&out_shape))
+                                .ok_or_else(|| anyhow::anyhow!("Where: y broadcast failed"))?;
 
                             ndarray::Zip::from(out_arr)
                                 .and(&cond_b)

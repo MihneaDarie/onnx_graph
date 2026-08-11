@@ -5,7 +5,7 @@ use saker_rs::linarg::{operations::apply_leaky_relu, utils::{leaky_relu_f32, lea
 
 use crate::{
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
-    nodes_utils::hash_string,
+    nodes_utils::{hash_string, slice_memory_order_mut_or_fix},
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -117,19 +117,17 @@ impl<T: Default + 'static> Node<T> for LeakyReluNode<T> {
         vec![self.o.clone()]
     }
 
-    fn execute(&self, omap: &mut TensorMap) {
+    fn execute(&self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [x, o] = omap.get_disjoint_mut([&self.x, &self.o]);
-        let x = x.map(|inner| &*inner);
-
-        match (x, o) {
-            (Some(x), Some(result)) => {
-                x.leaky_relu(self.alpha, result).unwrap();
-            }
-            _ => panic!("LeakyReluNode: missing input {}", self.x),
+        let x = x.map(|val| &*val);
+        crate::debug_check_tensors!("LeakyReluNode", x => self.x, o => self.o);
+        if let (Some(x), Some(out)) = (x, o) {
+            x.leaky_relu(self.alpha, out)?;
         }
+        Ok(())
     }
 
-    fn determine_output_shape(&mut self, omap: &mut TensorMap) {
+    fn determine_output_shape(&mut self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [x, o] = omap.get_disjoint_mut([&self.x, &self.o]);
         let x = x.map(|arr| &*arr);
 
@@ -141,9 +139,10 @@ impl<T: Default + 'static> Node<T> for LeakyReluNode<T> {
 
         if let Some(list) = &mut self.next_node {
             for next in list {
-                next.determine_output_shape(omap);
+                next.determine_output_shape(omap)?;
             }
         }
+        Ok(())
     }
 }
 
@@ -189,22 +188,49 @@ impl TypedArray {
             }
         }
         if let (TypedArray::Float(i), TypedArray::Float(o)) = (self, &mut *o) {
-            let src = i.as_slice_memory_order().unwrap();
-            let dst = o.as_slice_memory_order_mut().unwrap();
+            let src_owned;
+            let src = match i.as_slice_memory_order() {
+                Some(s) => s,
+                None => {
+                    src_owned = i.as_standard_layout().into_owned();
+                    src_owned.as_slice_memory_order().ok_or_else(|| {
+                        anyhow::anyhow!("LeakyRelu: array not contiguous after fix")
+                    })?
+                }
+            };
+            let dst = slice_memory_order_mut_or_fix(o, "LeakyRelu")?;
             apply_leaky_relu(dst, alpha, src);
             return Ok(());
         }
         match (self, &mut *o) {
             (TypedArray::Float(a), TypedArray::Float(o)) => {
-                let src = a.as_slice_memory_order().unwrap();
-                let dst = o.as_slice_memory_order_mut().unwrap();
+                let src_owned;
+                let src = match a.as_slice_memory_order() {
+                    Some(s) => s,
+                    None => {
+                        src_owned = a.as_standard_layout().into_owned();
+                        src_owned.as_slice_memory_order().ok_or_else(|| {
+                            anyhow::anyhow!("LeakyRelu: array not contiguous after fix")
+                        })?
+                    }
+                };
+                let dst = slice_memory_order_mut_or_fix(o, "LeakyRelu")?;
                 dst.par_iter_mut()
                     .zip(src.par_iter())
                     .for_each(|(d, s)| *d = leaky_relu_f32(*s, alpha));
             }
             (TypedArray::Double(a), TypedArray::Double(o)) => {
-                let src = a.as_slice_memory_order().unwrap();
-                let dst = o.as_slice_memory_order_mut().unwrap();
+                let src_owned;
+                let src = match a.as_slice_memory_order() {
+                    Some(s) => s,
+                    None => {
+                        src_owned = a.as_standard_layout().into_owned();
+                        src_owned.as_slice_memory_order().ok_or_else(|| {
+                            anyhow::anyhow!("LeakyRelu: array not contiguous after fix")
+                        })?
+                    }
+                };
+                let dst = slice_memory_order_mut_or_fix(o, "LeakyRelu")?;
                 dst.par_iter_mut()
                     .zip(src.par_iter())
                     .for_each(|(d, s)| *d = leaky_relu_f64(*s, alpha as f64));

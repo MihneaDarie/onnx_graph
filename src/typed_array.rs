@@ -300,25 +300,35 @@ impl TypedArray {
         let (cout, _, kh, kw) = w.dim();
 
         if kh == 1 && kw == 1 && cfg.pad == 0 && cfg.stride == 1 {
-            let hw = hin * win;
-            let xs = x.as_slice_memory_order().unwrap();
-            let ws = w.as_slice_memory_order().unwrap();
-            let out_sl = out.as_slice_memory_order_mut().unwrap();
-            let bias = conv_bias.as_ref().map(|b| b.as_slice().unwrap());
+            let xs = x
+                .as_slice_memory_order()
+                .ok_or_else(|| anyhow::anyhow!("conv: input not contiguous"))?;
+            let ws = w
+                .as_slice_memory_order()
+                .ok_or_else(|| anyhow::anyhow!("conv: weights not contiguous"))?;
+            let out_sl = out
+                .as_slice_memory_order_mut()
+                .ok_or_else(|| anyhow::anyhow!("conv: output not contiguous"))?;
+            let bias = conv_bias.as_ref().and_then(|b| b.as_slice());
 
-            sgemm_bias_parallel(cout, hw, cin, ws, xs, bias, out_sl, activation);
+            sgemm_bias_parallel(cout, hin * win, cin, ws, xs, bias, out_sl, activation);
             return Ok(());
         }
-        let hw = hin * win;
 
         let hout = (hin + 2 * cfg.pad - kh) / cfg.stride + 1;
         let wout = (win + 2 * cfg.pad - kw) / cfg.stride + 1;
         let hw_out = hout * wout;
         let k_dim = cin * kh * kw;
 
-        let xs = x.as_slice_memory_order().unwrap();
-        let ws = w.as_slice_memory_order().unwrap();
-        let out_sl = out.as_slice_memory_order_mut().unwrap();
+        let xs = x
+            .as_slice_memory_order()
+            .ok_or_else(|| anyhow::anyhow!("conv: input not contiguous"))?;
+        let ws = w
+            .as_slice_memory_order()
+            .ok_or_else(|| anyhow::anyhow!("conv: weights not contiguous"))?;
+        let out_sl = out
+            .as_slice_memory_order_mut()
+            .ok_or_else(|| anyhow::anyhow!("conv: output not contiguous"))?;
 
         let col_size = k_dim * hw_out;
         Self::run_func_with_f32_buffer(col_size, |col_buffer| {
@@ -333,7 +343,7 @@ impl TypedArray {
                 );
             }
 
-            let bias = conv_bias.as_ref().map(|b| b.as_slice().unwrap());
+            let bias = conv_bias.as_ref().and_then(|b| b.as_slice());
             sgemm_bias_parallel(
                 cout, hw_out, k_dim, ws, col_buffer, bias, out_sl, activation,
             );
@@ -406,10 +416,14 @@ impl TypedArray {
         .ensure_contiguous()
     }
 
-    pub fn from_tensor(tensor: &&OnnxTensor) -> Self {
-        let data_binding = tensor.data().unwrap();
+    pub fn from_tensor(tensor: &&OnnxTensor) -> anyhow::Result<Self> {
+        let data_binding = tensor
+            .data()
+            .map_err(|e| anyhow::anyhow!("tensor {}: failed to read data: {e}", tensor.name()))?;
         let binding = data_binding.as_slice();
-        let data = binding.as_ref();
+        let data = binding.as_ref().map_err(|e| {
+            anyhow::anyhow!("tensor {}: empty data: {e}", tensor.name())
+        })?;
         let shape = IxDyn(
             &tensor
                 .shape()
@@ -418,7 +432,7 @@ impl TypedArray {
                 .collect::<Vec<usize>>(),
         );
 
-        from_shape_vec_from_datatype!(
+        Ok(from_shape_vec_from_datatype!(
             tensor.data_type(),
             shape,
             data,
@@ -435,7 +449,7 @@ impl TypedArray {
                 (Uint64, u64)
             ]
         )
-        .ensure_contiguous()
+        .ensure_contiguous())
     }
 }
 

@@ -3,7 +3,7 @@ use std::{any::Any, collections::HashMap};
 use crate::{
     impl_typed_binop,
     nodes::{node::Node, unique_ids::UniqueId},
-    nodes_utils::hash_string,
+    nodes_utils::{hash_string, slice_memory_order_mut_or_fix, slice_memory_order_or_fix},
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -82,37 +82,33 @@ impl<T: Default + 'static> Node<T> for MulNode<T> {
         self.next_node.as_ref()
     }
 
-    fn execute(&self, omap: &mut TensorMap) {
+    fn execute(&self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [a, b, o] = omap.get_disjoint_mut([&self.a, &self.b, &self.o]);
-        let a = &*a.unwrap();
-        let b = &*b.unwrap();
-
-        match o {
-            Some(out) => {
-                if let (TypedArray::Float(a_arr), TypedArray::Float(b_arr)) = (a, b) {
-                    if a_arr.shape() == b_arr.shape() {
-                        let needs_alloc = match &*out {
-                            TypedArray::Float(o_arr) => o_arr.shape() != a_arr.shape(),
-                            _ => true,
-                        };
-                        if needs_alloc {
-                            *out = TypedArray::Float(ArrayD::zeros(IxDyn(a_arr.shape())));
-                        }
-                        if let TypedArray::Float(o_arr) = out {
-                            let a_sl = a_arr.as_slice_memory_order().unwrap();
-                            let b_sl = b_arr.as_slice_memory_order().unwrap();
-                            let dst = o_arr.as_slice_memory_order_mut().unwrap();
-                            mul_maybe_simd(a_sl, b_sl, dst);
-                        }
-                    } else {
-                        a.mul(b, out).unwrap();
+        crate::debug_check_tensors!("MulNode", a => self.a, b => self.b, o => self.o);
+        if let (Some(a), Some(b), Some(out)) = (a, b, o) {
+            if let (TypedArray::Float(a_arr), TypedArray::Float(b_arr)) = (&mut *a, &mut *b) {
+                if a_arr.shape() == b_arr.shape() {
+                    let needs_alloc = match &*out {
+                        TypedArray::Float(o_arr) => o_arr.shape() != a_arr.shape(),
+                        _ => true,
+                    };
+                    if needs_alloc {
+                        *out = TypedArray::Float(ArrayD::zeros(IxDyn(a_arr.shape())));
+                    }
+                    if let TypedArray::Float(o_arr) = &mut *out {
+                        let a_sl = slice_memory_order_or_fix(a_arr, "MulNode")?;
+                        let b_sl = slice_memory_order_or_fix(b_arr, "MulNode")?;
+                        let dst = slice_memory_order_mut_or_fix(o_arr, "MulNode")?;
+                        mul_maybe_simd(a_sl, b_sl, dst);
                     }
                 } else {
-                    a.mul(b, out).unwrap();
+                    a.mul(b, out)?;
                 }
+            } else {
+                a.mul(b, out)?;
             }
-            _ => panic!("MulNode: missing input(s) - a={} b={}", self.a, self.b),
         }
+        Ok(())
     }
     fn output_hashes(&self) -> Vec<u64> {
         vec![self.o.clone()]
@@ -127,7 +123,7 @@ impl<T: Default + 'static> Node<T> for MulNode<T> {
         }
     }
 
-    fn determine_output_shape(&mut self, omap: &mut TensorMap) {
+    fn determine_output_shape(&mut self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [a, o] = omap.get_disjoint_mut([&self.a, &self.o]);
         let a = a.map(|arr| &*arr);
 
@@ -139,9 +135,10 @@ impl<T: Default + 'static> Node<T> for MulNode<T> {
 
         if let Some(list) = &mut self.next_node {
             for next in list {
-                next.determine_output_shape(omap);
+                next.determine_output_shape(omap)?;
             }
         }
+        Ok(())
     }
 }
 

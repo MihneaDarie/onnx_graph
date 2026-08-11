@@ -3,7 +3,7 @@ use std::any::Any;
 use crate::{
     impl_typed_binop,
     nodes::{node::Node, unique_ids::UniqueId},
-    nodes_utils::hash_string,
+    nodes_utils::{hash_string, slice_memory_order_mut_or_fix, slice_memory_order_or_fix},
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -84,33 +84,29 @@ impl<T: Default + 'static> Node<T> for DivNode<T> {
         vec![self.a.clone(), self.b.clone()]
     }
 
-    fn execute(&self, omap: &mut TensorMap) {
+    fn execute(&self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [a, b, o] = omap.get_disjoint_mut([&self.a, &self.b, &self.o]);
-        let a = &*a.unwrap();
-        let b = &*b.unwrap();
-
-        match o {
-            Some(out) => {
-                if let (
-                    TypedArray::Float(a_arr),
-                    TypedArray::Float(b_arr),
-                    TypedArray::Float(o_arr),
-                ) = (a, b, &mut *out)
-                {
-                    if a_arr.shape() == b_arr.shape() {
-                        let a_sl = a_arr.as_slice_memory_order().unwrap();
-                        let b_sl = b_arr.as_slice_memory_order().unwrap();
-                        let dst = o_arr.as_slice_memory_order_mut().unwrap();
-                        div_maybe_simd(a_sl, b_sl, dst);
-                    } else {
-                        a.div(b, out).unwrap();
-                    }
+        crate::debug_check_tensors!("DivNode", a => self.a, b => self.b, o => self.o);
+        if let (Some(a), Some(b), Some(out)) = (a, b, o) {
+            if let (
+                TypedArray::Float(a_arr),
+                TypedArray::Float(b_arr),
+                TypedArray::Float(o_arr),
+            ) = (&mut *a, &mut *b, &mut *out)
+            {
+                if a_arr.shape() == b_arr.shape() {
+                    let a_sl = slice_memory_order_or_fix(a_arr, "DivNode")?;
+                    let b_sl = slice_memory_order_or_fix(b_arr, "DivNode")?;
+                    let dst = slice_memory_order_mut_or_fix(o_arr, "DivNode")?;
+                    div_maybe_simd(a_sl, b_sl, dst);
                 } else {
-                    a.div(b, out).unwrap();
+                    a.div(b, out)?;
                 }
+            } else {
+                a.div(b, out)?;
             }
-            _ => panic!("DivNode: missing input(s) - a={} b={}", self.a, self.b),
         }
+        Ok(())
     }
 
     fn print(&self) {
@@ -123,7 +119,7 @@ impl<T: Default + 'static> Node<T> for DivNode<T> {
         }
     }
 
-    fn determine_output_shape(&mut self, omap: &mut TensorMap) {
+    fn determine_output_shape(&mut self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [a, o] = omap.get_disjoint_mut([&self.a, &self.o]);
         let a = a.map(|arr| &*arr);
         if let (Some(a), Some(o)) = (a, o) {
@@ -134,9 +130,10 @@ impl<T: Default + 'static> Node<T> for DivNode<T> {
 
         if let Some(list) = &mut self.next_node {
             for next in list {
-                next.determine_output_shape(omap);
+                next.determine_output_shape(omap)?;
             }
         }
+        Ok(())
     }
 }
 

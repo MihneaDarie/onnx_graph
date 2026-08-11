@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
-    nodes_utils::hash_string,
+    nodes_utils::{hash_string, slice_memory_order_mut_or_fix},
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -100,23 +100,13 @@ impl<T: Default + 'static> Node<T> for ArgMaxNode<T> {
         self.next_node.as_ref()
     }
 
-    fn execute(&self, omap: &mut TensorMap) {
+    fn execute(&self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [data, o] = omap.get_disjoint_mut([&self.data, &self.o]);
-        let data = &*data.unwrap();
-
-        match o {
-            Some(result) => {
-                TypedArray::argmax(
-                    data,
-                    self.axis,
-                    self.keepdims,
-                    self.select_last_index,
-                    result,
-                )
-                .unwrap();
-            }
-            _ => panic!("ArgMaxNode: missing output {}", self.o),
+        crate::debug_check_tensors!("ArgMaxNode", data => self.data, o => self.o);
+        if let (Some(data), Some(out)) = (data, o) {
+            TypedArray::argmax(&*data, self.axis, self.keepdims, self.select_last_index, out)?;
         }
+        Ok(())
     }
 
     fn print(&self) {
@@ -132,7 +122,7 @@ impl<T: Default + 'static> Node<T> for ArgMaxNode<T> {
         }
     }
 
-    fn determine_output_shape(&mut self, omap: &mut TensorMap) {
+    fn determine_output_shape(&mut self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [x, o] = omap.get_disjoint_mut([&self.data, &self.o]);
         let x = x.map(|arr| &*arr);
 
@@ -158,9 +148,10 @@ impl<T: Default + 'static> Node<T> for ArgMaxNode<T> {
 
         if let Some(list) = &mut self.next_node {
             for next in list {
-                next.determine_output_shape(omap);
+                next.determine_output_shape(omap)?;
             }
         }
+        Ok(())
     }
 }
 
@@ -208,7 +199,7 @@ macro_rules! argmax_variant {
             _ => unreachable!(),
         };
 
-        let out_sl = out_arr.as_slice_memory_order_mut().unwrap();
+        let out_sl = slice_memory_order_mut_or_fix(out_arr, "argmax")?;
         let mut idx = 0;
 
         for lane in $arr.lanes(Axis(axis_usize)) {

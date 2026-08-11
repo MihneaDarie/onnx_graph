@@ -2,7 +2,7 @@ use std::{any::Any, collections::HashMap};
 
 use crate::{
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
-    nodes_utils::hash_string,
+    nodes_utils::{hash_string, slice_memory_order_mut_or_fix, slice_memory_order_or_fix},
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -91,17 +91,13 @@ impl<T: Default + 'static> Node<T> for MatMulNode<T> {
         self.next_node.as_ref()
     }
 
-    fn execute(&self, omap: &mut TensorMap) {
+    fn execute(&self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [a, b, o] = omap.get_disjoint_mut([&self.a, &self.b, &self.o]);
-        let a = &*a.unwrap();
-        let b = &*b.unwrap();
-
-        match o {
-            Some(result) => {
-                a.matmul(b, result).unwrap();
-            }
-            _ => panic!("MatMulNode: missing output {}", self.o),
+        crate::debug_check_tensors!("MatMulNode", a => self.a, b => self.b, o => self.o);
+        if let (Some(a), Some(b), Some(out)) = (a, b, o) {
+            a.matmul(b, out)?;
         }
+        Ok(())
     }
 
     fn print(&self) {
@@ -114,18 +110,32 @@ impl<T: Default + 'static> Node<T> for MatMulNode<T> {
         }
     }
 
-    fn determine_output_shape(&mut self, omap: &mut TensorMap) {
+    fn determine_output_shape(&mut self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [a, b, o] = omap.get_disjoint_mut([&self.a, &self.b, &self.o]);
         let a = a.map(|inner| &*inner);
         let b = b.map(|inner| &*inner);
         if let (Some(a), Some(b)) = (a, b) {
             let a_shape = match a.shape() {
                 Some(s) => s.to_vec(),
-                None => return,
+                None => {
+                    if let Some(list) = &mut self.next_node {
+                        for next in list {
+                            next.determine_output_shape(omap)?;
+                        }
+                    }
+                    return Ok(());
+                }
             };
             let b_shape = match b.shape() {
                 Some(s) => s.to_vec(),
-                None => return,
+                None => {
+                    if let Some(list) = &mut self.next_node {
+                        for next in list {
+                            next.determine_output_shape(omap)?;
+                        }
+                    }
+                    return Ok(());
+                }
             };
             let a_ndim = a_shape.len();
             let b_ndim = b_shape.len();
@@ -166,13 +176,14 @@ impl<T: Default + 'static> Node<T> for MatMulNode<T> {
             if let Some(o) = o {
                 *o = TypedArray::empty_with_others_type(a, &out_shape);
             }
+        }
 
-            if let Some(list) = &mut self.next_node {
-                for next in list {
-                    next.determine_output_shape(omap);
-                }
+        if let Some(list) = &mut self.next_node {
+            for next in list {
+                next.determine_output_shape(omap)?;
             }
         }
+        Ok(())
     }
 }
 
@@ -197,9 +208,11 @@ impl TypedArray {
                             *o = TypedArray::Float(ArrayD::zeros(IxDyn(&[1]))).ensure_contiguous();
                         }
                         if let TypedArray::Float(out) = o {
-                            let a_sl = a_arr.as_slice_memory_order().unwrap();
-                            let b_sl = b_arr.as_slice_memory_order().unwrap();
-                            let dst = out.as_slice_memory_order_mut().unwrap();
+                            let mut a_buf = a_arr.clone();
+                            let mut b_buf = b_arr.clone();
+                            let a_sl = slice_memory_order_or_fix(&mut a_buf, "matmul")?;
+                            let b_sl = slice_memory_order_or_fix(&mut b_buf, "matmul")?;
+                            let dst = slice_memory_order_mut_or_fix(out, "matmul")?;
                             dst[0] = a_sl.iter().zip(b_sl.iter()).map(|(a, b)| a * b).sum();
                         }
                     }
@@ -218,9 +231,11 @@ impl TypedArray {
                                 .ensure_contiguous();
                         }
                         if let TypedArray::Float(out) = o {
-                            let a_sl = a_arr.as_slice_memory_order().unwrap();
-                            let b_sl = b_arr.as_slice_memory_order().unwrap();
-                            let dst = out.as_slice_memory_order_mut().unwrap();
+                            let mut a_buf = a_arr.clone();
+                            let mut b_buf = b_arr.clone();
+                            let a_sl = slice_memory_order_or_fix(&mut a_buf, "matmul")?;
+                            let b_sl = slice_memory_order_or_fix(&mut b_buf, "matmul")?;
+                            let dst = slice_memory_order_mut_or_fix(out, "matmul")?;
                             for i in 0..m {
                                 let mut sum = 0.0f32;
                                 for p in 0..k {
@@ -245,9 +260,11 @@ impl TypedArray {
                                 .ensure_contiguous();
                         }
                         if let TypedArray::Float(out) = o {
-                            let a_sl = a_arr.as_slice_memory_order().unwrap();
-                            let b_sl = b_arr.as_slice_memory_order().unwrap();
-                            let dst = out.as_slice_memory_order_mut().unwrap();
+                            let mut a_buf = a_arr.clone();
+                            let mut b_buf = b_arr.clone();
+                            let a_sl = slice_memory_order_or_fix(&mut a_buf, "matmul")?;
+                            let b_sl = slice_memory_order_or_fix(&mut b_buf, "matmul")?;
+                            let dst = slice_memory_order_mut_or_fix(out, "matmul")?;
                             for j in 0..n {
                                 let mut sum = 0.0f32;
                                 for p in 0..k {
@@ -273,9 +290,11 @@ impl TypedArray {
                                 .ensure_contiguous();
                         }
                         if let TypedArray::Float(out) = o {
-                            let a_sl = a_arr.as_slice_memory_order().unwrap();
-                            let b_sl = b_arr.as_slice_memory_order().unwrap();
-                            let dst = out.as_slice_memory_order_mut().unwrap();
+                            let mut a_buf = a_arr.clone();
+                            let mut b_buf = b_arr.clone();
+                            let a_sl = slice_memory_order_or_fix(&mut a_buf, "matmul")?;
+                            let b_sl = slice_memory_order_or_fix(&mut b_buf, "matmul")?;
+                            let dst = slice_memory_order_mut_or_fix(out, "matmul")?;
 
                             sgemm_bias_parallel(m, n, k, a_sl, b_sl, None, dst, Activation::None);
                         }
@@ -320,9 +339,11 @@ impl TypedArray {
                         }
 
                         if let TypedArray::Float(out) = o {
-                            let a_sl = a_arr.as_slice_memory_order().unwrap();
-                            let b_sl = b_arr.as_slice_memory_order().unwrap();
-                            let dst = out.as_slice_memory_order_mut().unwrap();
+                            let mut a_buf = a_arr.clone();
+                            let mut b_buf = b_arr.clone();
+                            let a_sl = slice_memory_order_or_fix(&mut a_buf, "matmul")?;
+                            let b_sl = slice_memory_order_or_fix(&mut b_buf, "matmul")?;
+                            let dst = slice_memory_order_mut_or_fix(out, "matmul")?;
 
                             let a_mat_size = m * k;
                             let b_mat_size = k * n;

@@ -1,7 +1,4 @@
-use std::{
-    collections::HashMap,
-    hash::{DefaultHasher, Hash, Hasher},
-};
+use std::collections::HashMap;
 
 use crate::{nodes_utils::hash_string, typed_array::TypedArray};
 
@@ -20,8 +17,18 @@ impl TensorMap {
     }
 
     #[inline]
+    pub fn hash_name(name: &str) -> u64 {
+        hash_string(name)
+    }
+
+    #[inline]
     pub fn insert(&mut self, key: u64, val: TypedArray) {
         self.inner.insert(key, val.ensure_contiguous());
+    }
+
+    #[inline]
+    pub fn insert_str(&mut self, name: &str, val: TypedArray) {
+        self.insert(Self::hash_name(name), val);
     }
 
     #[inline]
@@ -39,13 +46,17 @@ impl TensorMap {
 
     #[inline]
     pub fn get_from_str(&self, key: &str) -> Option<&TypedArray> {
-        let id = hash_string(key);
-        self.inner.get(&id)
+        self.inner.get(&Self::hash_name(key))
     }
 
     #[inline]
     pub fn get_mut(&mut self, key: &u64) -> Option<&mut TypedArray> {
         self.inner.get_mut(key)
+    }
+
+    #[inline]
+    pub fn get_mut_str(&mut self, name: &str) -> Option<&mut TypedArray> {
+        self.inner.get_mut(&Self::hash_name(name))
     }
 
     #[inline]

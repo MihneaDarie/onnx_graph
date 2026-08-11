@@ -60,16 +60,14 @@ impl<T: Default + 'static> Node<T> for CosNode<T> {
         self.next_node.as_ref()
     }
 
-    fn execute(&self, omap: &mut TensorMap) {
+    fn execute(&self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [x, o] = omap.get_disjoint_mut([&self.x, &self.o]);
-        let x = &*x.unwrap();
-
-        match o {
-            Some(result) => {
-                x.cos_op(result).unwrap();
-            }
-            None => panic!("CosNode: missing input {}", self.x),
+        let x = x.map(|val| &*val);
+        crate::debug_check_tensors!("CosNode", x => self.x, o => self.o);
+        if let (Some(x), Some(out)) = (x, o) {
+            x.cos_op(out)?;
         }
+        Ok(())
     }
 
     fn output_hashes(&self) -> Vec<u64> {
@@ -101,7 +99,7 @@ impl<T: Default + 'static> Node<T> for CosNode<T> {
         }
     }
 
-    fn determine_output_shape(&mut self, omap: &mut TensorMap) {
+    fn determine_output_shape(&mut self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [x, o] = omap.get_disjoint_mut([&self.x, &self.o]);
         let x = x.map(|arr| &*arr);
 
@@ -113,9 +111,10 @@ impl<T: Default + 'static> Node<T> for CosNode<T> {
 
         if let Some(list) = &mut self.next_node {
             for next in list {
-                next.determine_output_shape(omap);
+                next.determine_output_shape(omap)?;
             }
         }
+        Ok(())
     }
 }
 

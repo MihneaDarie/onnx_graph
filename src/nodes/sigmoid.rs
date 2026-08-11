@@ -65,16 +65,14 @@ impl<T: Default + 'static> Node<T> for SigmoidNode<T> {
         self.next_node.as_ref()
     }
 
-    fn execute(&self, omap: &mut TensorMap) {
+    fn execute(&self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [x, o] = omap.get_disjoint_mut([&self.x, &self.o]);
-        let x = x.map(|val| {&*val});
-
-        match (x, o) {
-            (Some(x), Some(result)) => {
-                x.sigmoid(result).unwrap();
-            }
-            _ => panic!("SigmoidNode: missing input {}", self.x),
+        let x = x.map(|val| &*val);
+        crate::debug_check_tensors!("SigmoidNode", x => self.x, o => self.o);
+        if let (Some(x), Some(out)) = (x, o) {
+            x.sigmoid(out)?;
         }
+        Ok(())
     }
 
     fn output_hashes(&self) -> Vec<u64> {
@@ -106,7 +104,7 @@ impl<T: Default + 'static> Node<T> for SigmoidNode<T> {
         }
     }
 
-    fn determine_output_shape(&mut self, omap: &mut TensorMap) {
+    fn determine_output_shape(&mut self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [x, o] = omap.get_disjoint_mut([&self.x, &self.o]);
         let x = x.map(|arr| &*arr);
 
@@ -118,9 +116,10 @@ impl<T: Default + 'static> Node<T> for SigmoidNode<T> {
 
         if let Some(list) = &mut self.next_node {
             for next in list {
-                next.determine_output_shape(omap);
+                next.determine_output_shape(omap)?;
             }
         }
+        Ok(())
     }
 }
 

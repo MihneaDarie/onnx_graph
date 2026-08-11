@@ -2,7 +2,7 @@ use std::any::Any;
 
 use crate::{
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
-    nodes_utils::hash_string,
+    nodes_utils::{hash_string, slice_memory_order_mut_or_fix, slice_memory_order_or_fix},
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -29,7 +29,10 @@ impl<T: Default> FromOnnxOperation for TransposeNode<T> {
             input: u64::default(),
             o: u64::default(),
             perm: match attrs.get("perm") {
-                Some(av) => av.as_ints().unwrap().to_vec(),
+                Some(av) => av
+                    .as_ints()
+                    .ok_or_else(|| anyhow::anyhow!("Transpose: perm must be ints"))?
+                    .to_vec(),
                 None => vec![],
             },
             unique_id: UniqueId::Transpose,
@@ -98,16 +101,14 @@ impl<T: Default + 'static> Node<T> for TransposeNode<T> {
         self.next_node.as_ref()
     }
 
-    fn execute(&self, omap: &mut TensorMap) {
+    fn execute(&self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [x, o] = omap.get_disjoint_mut([&self.input, &self.o]);
-        let x = &*x.unwrap();
-
-        match o {
-            Some(result) => {
-                x.transpose(&self.perm, result).unwrap();
-            }
-            None => panic!("TransposeNode: missing input {}", self.input),
+        let x = x.map(|val| &*val);
+        crate::debug_check_tensors!("TransposeNode", x => self.input, o => self.o);
+        if let (Some(x), Some(out)) = (x, o) {
+            x.transpose(&self.perm, out)?;
         }
+        Ok(())
     }
 
     fn print(&self) {
@@ -120,7 +121,7 @@ impl<T: Default + 'static> Node<T> for TransposeNode<T> {
         }
     }
 
-    fn determine_output_shape(&mut self, omap: &mut TensorMap) {
+    fn determine_output_shape(&mut self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [x, o] = omap.get_disjoint_mut([&self.input, &self.o]);
         let x = x.map(|arr| &*arr);
 
@@ -149,9 +150,10 @@ impl<T: Default + 'static> Node<T> for TransposeNode<T> {
 
         if let Some(list) = &mut self.next_node {
             for next in list {
-                next.determine_output_shape(omap);
+                next.determine_output_shape(omap)?;
             }
         }
+        Ok(())
     }
 }
 

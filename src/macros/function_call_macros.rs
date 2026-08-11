@@ -20,8 +20,8 @@ macro_rules! impl_typed_singleopfunction_with_the_same_output_type_as_the_output
                             *o = TypedArray::$variant(ArrayD::zeros(IxDyn(a.shape()))).ensure_contiguous();
                         }
                         if let TypedArray::$variant(out) = o {
-                            let dst = out.as_slice_memory_order_mut().unwrap();
-                            let src = a.as_slice_memory_order().unwrap();
+                            let dst = crate::nodes_utils::slice_memory_order_mut_or_fix(out, stringify!($name))?;
+                            let src = crate::nodes_utils::slice_memory_order_view(a, stringify!($name))?;
                             dst.par_iter_mut()
                                 .zip(src.par_iter())
                                 .for_each(|(d, s)| *d = (*s).$method());
@@ -64,8 +64,8 @@ macro_rules! impl_typed_singleopfunction_with_boolean_ouput {
                             *o = TypedArray::Bool(ArrayD::from_elem(a.shape(), false)).ensure_contiguous();
                         }
                         if let TypedArray::Bool(out) = o {
-                            let dst = out.as_slice_memory_order_mut().unwrap();
-                            let src = a.as_slice_memory_order().unwrap();
+                            let dst = crate::nodes_utils::slice_memory_order_mut_or_fix(out, stringify!($name))?;
+                            let src = crate::nodes_utils::slice_memory_order_view(a, stringify!($name))?;
                             dst.par_iter_mut()
                                 .zip(src.par_iter())
                                 .for_each(|(d, s)| *d = (*s).$method());

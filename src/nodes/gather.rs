@@ -2,7 +2,7 @@ use std::any::Any;
 
 use crate::{
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
-    nodes_utils::hash_string,
+    nodes_utils::{hash_string, slice_memory_order_mut_or_fix, slice_memory_order_or_fix},
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -91,17 +91,20 @@ impl<T: Default + 'static> Node<T> for GatherNode<T> {
         self.next_node.as_ref()
     }
 
-    fn execute(&self, omap: &mut TensorMap) {
+    fn execute(&self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [data, indices, o] = omap.get_disjoint_mut([&self.data, &self.indices, &self.o]);
-        let data = &*data.unwrap();
-        let indices = &*indices.unwrap();
-
-        match o {
-            Some(result) => {
-                TypedArray::gather(data, indices, self.axis, result).unwrap();
-            }
-            _ => panic!("GatherNode: missing output {}", self.o),
+        crate::debug_check_tensors!(
+            "GatherNode",
+            data => self.data,
+            indices => self.indices,
+            o => self.o,
+        );
+        let data = data.map(|val| &*val);
+        let indices = indices.map(|val| &*val);
+        if let (Some(data), Some(indices), Some(out)) = (data, indices, o) {
+            TypedArray::gather(data, indices, self.axis, out)?;
         }
+        Ok(())
     }
 
     fn print(&self) {
@@ -117,7 +120,7 @@ impl<T: Default + 'static> Node<T> for GatherNode<T> {
         }
     }
 
-    fn determine_output_shape(&mut self, omap: &mut TensorMap) {
+    fn determine_output_shape(&mut self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [data, indices, o] = omap.get_disjoint_mut([&self.data, &self.indices, &self.o]);
         let data = data.map(|arr| &*arr);
         let indices = indices.map(|arr| &*arr);
@@ -152,9 +155,10 @@ impl<T: Default + 'static> Node<T> for GatherNode<T> {
 
         if let Some(list) = &mut self.next_node {
             for next in list {
-                next.determine_output_shape(omap);
+                next.determine_output_shape(omap)?;
             }
         }
+        Ok(())
     }
 }
 
@@ -206,8 +210,9 @@ macro_rules! call_gather_for_typed_array {
                     _ => unreachable!(),
                 };
 
-                let data_sl = arr.as_slice_memory_order().unwrap();
-                let out_sl = out_arr.as_slice_memory_order_mut().unwrap();
+                let mut data_arr = arr.clone();
+                let data_sl = slice_memory_order_or_fix(&mut data_arr, "gather")?;
+                let out_sl = slice_memory_order_mut_or_fix(out_arr, "gather")?;
 
                 let outer_size: usize = data_shape[..axis_usize].iter().product();
                 let inner_size: usize = data_shape[axis_usize + 1..].iter().product();
@@ -277,8 +282,9 @@ macro_rules! gather_variant {
             _ => unreachable!(),
         };
 
-        let data_sl = $arr.as_slice_memory_order().unwrap();
-        let out_sl = out_arr.as_slice_memory_order_mut().unwrap();
+        let mut data_arr = $arr.clone();
+        let data_sl = slice_memory_order_or_fix(&mut data_arr, "gather")?;
+        let out_sl = slice_memory_order_mut_or_fix(out_arr, "gather")?;
 
         let outer_size: usize = data_shape[..axis_usize].iter().product();
         let inner_size: usize = data_shape[axis_usize + 1..].iter().product();

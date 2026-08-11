@@ -12,9 +12,9 @@ macro_rules! impl_typed_binop {
                     (TypedArray::$variant(a), TypedArray::$variant(b)) => {
                         if a.shape() == b.shape() {
                             if let TypedArray::$variant(out) = o {
-                                    let dst = out.as_slice_memory_order_mut().unwrap();
-                                    let sa = a.as_slice_memory_order().unwrap();
-                                    let sb = b.as_slice_memory_order().unwrap();
+                                    let dst = crate::nodes_utils::slice_memory_order_mut_or_fix(out, stringify!($name))?;
+                                    let sa = crate::nodes_utils::slice_memory_order_view(a, stringify!($name))?;
+                                    let sb = crate::nodes_utils::slice_memory_order_view(b, stringify!($name))?;
                                     dst.par_iter_mut()
                                         .zip(sa.par_iter().zip(sb.par_iter()))
                                         .for_each(|(d, (a, b))| *d = *a $op *b);
@@ -61,15 +61,17 @@ macro_rules! impl_typed_binop_with_boolean_output {
 
                         if let TypedArray::Bool(out) = o {
                             if a.shape() == b.shape() {
-                                let dst = out.as_slice_memory_order_mut().unwrap();
-                                let sa = a.as_slice_memory_order().unwrap();
-                                let sb = b.as_slice_memory_order().unwrap();
+                                let dst = crate::nodes_utils::slice_memory_order_mut_or_fix(out, stringify!($name))?;
+                                let sa = crate::nodes_utils::slice_memory_order_view(a, stringify!($name))?;
+                                let sb = crate::nodes_utils::slice_memory_order_view(b, stringify!($name))?;
                                 dst.iter_mut()
                                     .zip(sa.iter().zip(sb.iter()))
                                     .for_each(|(d, (a, b))| *d = $op(a, b));
                             } else {
-                                let a_bc = a.broadcast(IxDyn(&out_shape)).unwrap();
-                                let b_bc = b.broadcast(IxDyn(&out_shape)).unwrap();
+                                let a_bc = a.broadcast(IxDyn(&out_shape))
+                                    .ok_or_else(|| anyhow::anyhow!("{}: failed to broadcast a", stringify!($name)))?;
+                                let b_bc = b.broadcast(IxDyn(&out_shape))
+                                    .ok_or_else(|| anyhow::anyhow!("{}: failed to broadcast b", stringify!($name)))?;
                                 ndarray::Zip::from(out)
                                     .and(&a_bc)
                                     .and(&b_bc)

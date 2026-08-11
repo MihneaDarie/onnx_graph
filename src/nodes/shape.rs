@@ -89,16 +89,13 @@ impl<T: Default + 'static> Node<T> for ShapeNode<T> {
         self.next_node.as_ref()
     }
 
-    fn execute(&self, omap: &mut TensorMap) {
+    fn execute(&self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [data, o] = omap.get_disjoint_mut([&self.data, &self.o]);
-        let data = &*data.unwrap();
-
-        match o {
-            Some(result) => {
-                TypedArray::shape_op(data, self.start, self.end, result).unwrap();
-            }
-            _ => panic!("ShapeNode: missing output {}", self.o),
+        crate::debug_check_tensors!("ShapeNode", data => self.data, o => self.o);
+        if let (Some(data), Some(out)) = (data, o) {
+            TypedArray::shape_op(&*data, self.start, self.end, out)?;
         }
+        Ok(())
     }
 
     fn print(&self) {
@@ -114,7 +111,7 @@ impl<T: Default + 'static> Node<T> for ShapeNode<T> {
         }
     }
 
-    fn determine_output_shape(&mut self, omap: &mut TensorMap) {
+    fn determine_output_shape(&mut self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [x, o] = omap.get_disjoint_mut([&self.data, &self.o]);
         let x = x.map(|arr| &*arr);
 
@@ -143,9 +140,10 @@ impl<T: Default + 'static> Node<T> for ShapeNode<T> {
 
         if let Some(list) = &mut self.next_node {
             for next in list {
-                next.determine_output_shape(omap);
+                next.determine_output_shape(omap)?;
             }
         }
+        Ok(())
     }
 }
 
@@ -158,7 +156,7 @@ impl TypedArray {
     ) -> anyhow::Result<()> {
         let shape: Vec<i64> = data
             .shape()
-            .unwrap()
+            .ok_or_else(|| anyhow::anyhow!("Shape: undefined input"))?
             .iter()
             .map(|val| *val as i64)
             .collect();
@@ -189,7 +187,7 @@ impl TypedArray {
         };
 
         let len = sliced.len();
-        *o = TypedArray::Int64(ArrayD::from_shape_vec(IxDyn(&[len]), sliced).unwrap());
+        *o = TypedArray::Int64(ArrayD::from_shape_vec(IxDyn(&[len]), sliced)?);
 
         Ok(())
     }

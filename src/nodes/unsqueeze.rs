@@ -2,7 +2,7 @@ use std::{any::Any, collections::HashMap};
 
 use crate::{
     nodes::{node::Node, unique_ids::UniqueId},
-    nodes_utils::hash_string,
+    nodes_utils::{hash_string, slice_memory_order_mut_or_fix, slice_memory_order_or_fix},
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -67,17 +67,19 @@ impl<T: Default + 'static> Node<T> for UnsquezeeNode<T> {
         self.next_node.as_ref()
     }
 
-    fn execute(&self, omap: &mut TensorMap) {
+    fn execute(&self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [data, axes, o] = omap.get_disjoint_mut([&self.data, &self.axes, &self.o]);
+        crate::debug_check_tensors!(
+            "UnsquezeeNode",
+            data => self.data,
+            axes => self.axes,
+            o => self.o,
+        );
         let axes = axes.map(|val| &*val);
-        let data = &*data.unwrap();
-
-        match (axes, o) {
-            (Some(axes), Some(result)) => {
-                data.unsqueeze(axes, result).unwrap();
-            }
-            _ => panic!("UnsquezeeNode: missing input {}", self.data),
+        if let (Some(data), Some(axes), Some(out)) = (data, axes, o) {
+            data.unsqueeze(axes, out)?;
         }
+        Ok(())
     }
 
     fn output_hashes(&self) -> Vec<u64> {
@@ -109,7 +111,7 @@ impl<T: Default + 'static> Node<T> for UnsquezeeNode<T> {
         }
     }
 
-    fn determine_output_shape(&mut self, omap: &mut TensorMap) {
+    fn determine_output_shape(&mut self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [x, axes, o] = omap.get_disjoint_mut([&self.data, &self.axes, &self.o]);
         let x = x.map(|arr| &*arr);
         let axes = axes.map(|arr| &*arr);
@@ -143,9 +145,10 @@ impl<T: Default + 'static> Node<T> for UnsquezeeNode<T> {
 
         if let Some(list) = &mut self.next_node {
             for next in list {
-                next.determine_output_shape(omap);
+                next.determine_output_shape(omap)?;
             }
         }
+        Ok(())
     }
 }
 
@@ -183,7 +186,8 @@ impl TypedArray {
                 use ndarray::ArrayD;
                 use ndarray::IxDyn;
 
-                let src = $a.as_slice_memory_order().unwrap();
+                let mut src_arr = $a.clone();
+                let src = slice_memory_order_or_fix(&mut src_arr, "unsqueeze")?;
                 let needs_realloc = match &*o {
                     TypedArray::$variant(out) => out.shape() != out_shape.as_slice(),
                     _ => true,
@@ -196,7 +200,7 @@ impl TypedArray {
                     .ensure_contiguous();
                 } else {
                     if let TypedArray::$variant(out) = o {
-                        let dst = out.as_slice_memory_order_mut().unwrap();
+                        let dst = slice_memory_order_mut_or_fix(out, "unsqueeze")?;
                         dst.copy_from_slice(src);
                     }
                 }

@@ -2,7 +2,7 @@ use std::{any::Any, collections::HashMap};
 
 use crate::{
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
-    nodes_utils::hash_string,
+    nodes_utils::{hash_string, slice_memory_order_mut_or_fix, slice_memory_order_or_fix},
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -112,35 +112,35 @@ impl<T: Default + 'static> Node<T> for GemmNode<T> {
         self.next_node.as_ref()
     }
 
-    fn execute(&self, omap: &mut TensorMap) {
+    fn execute(&self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let def = u64::default();
         let c_key = self.c.as_ref().unwrap_or(&def);
 
         let [a, b, c, o] = omap.get_disjoint_mut([&self.a, &self.b, c_key, &self.o]);
-        let a = &*a.unwrap();
-        let b = &*b.unwrap();
+        crate::debug_check_tensors!("GemmNode", a => self.a, b => self.b, o => self.o);
+        if self.c.is_some() {
+            crate::debug_check_tensors!("GemmNode", c => *c_key);
+        }
+        let a = a.map(|val| &*val);
+        let b = b.map(|val| &*val);
         let c = if self.c.is_some() {
-            c.map(|c| &*c)
+            c.map(|val| &*val)
         } else {
             None
         };
-
-        match o {
-            Some(result) => {
-                TypedArray::gemm(
-                    a,
-                    b,
-                    c,
-                    self.alpha,
-                    self.beta,
-                    self.trans_a,
-                    self.trans_b,
-                    result,
-                )
-                .unwrap();
-            }
-            _ => panic!("GemmNode: missing output {}", self.o),
+        if let (Some(a), Some(b), Some(out)) = (a, b, o) {
+            TypedArray::gemm(
+                a,
+                b,
+                c,
+                self.alpha,
+                self.beta,
+                self.trans_a,
+                self.trans_b,
+                out,
+            )?;
         }
+        Ok(())
     }
 
     fn print(&self) {
@@ -156,7 +156,7 @@ impl<T: Default + 'static> Node<T> for GemmNode<T> {
         }
     }
 
-    fn determine_output_shape(&mut self, omap: &mut TensorMap) {
+    fn determine_output_shape(&mut self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [a, b, o] = omap.get_disjoint_mut([&self.a, &self.b, &self.o]);
         let a = a.map(|arr| &*arr);
         let b = b.map(|arr| &*arr);
@@ -171,9 +171,10 @@ impl<T: Default + 'static> Node<T> for GemmNode<T> {
         }
         if let Some(list) = &mut self.next_node {
             for next in list {
-                next.determine_output_shape(omap);
+                next.determine_output_shape(omap)?;
             }
         }
+        Ok(())
     }
 }
 
@@ -220,9 +221,11 @@ impl TypedArray {
             TypedArray::Float(arr) => arr,
             _ => unreachable!(),
         };
-        let out_sl = out_arr.as_slice_memory_order_mut().unwrap();
-        let a_sl = a_arr.as_slice_memory_order().unwrap();
-        let b_sl = b_arr.as_slice_memory_order().unwrap();
+        let out_sl = slice_memory_order_mut_or_fix(out_arr, "gemm")?;
+        let mut a_buf = a_arr.clone();
+        let mut b_buf = b_arr.clone();
+        let a_sl = slice_memory_order_or_fix(&mut a_buf, "gemm")?;
+        let b_sl = slice_memory_order_or_fix(&mut b_buf, "gemm")?;
 
         let a_ready: Vec<f32>;
         let a_ptr = if trans_a {
@@ -255,7 +258,8 @@ impl TypedArray {
         }
 
         if let Some(TypedArray::Float(c_arr)) = c {
-            let c_sl = c_arr.as_slice_memory_order().unwrap();
+            let mut c_buf = c_arr.clone();
+            let c_sl = slice_memory_order_or_fix(&mut c_buf, "gemm")?;
             if c_arr.len() == n {
                 for row in 0..m {
                     let offset = row * n;

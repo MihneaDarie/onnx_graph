@@ -1,7 +1,4 @@
-use std::{
-    collections::{HashMap, HashSet},
-    hash::{DefaultHasher, Hash, Hasher},
-};
+use std::collections::{HashMap, HashSet};
 
 use crate::{
     nodes::{
@@ -70,12 +67,13 @@ impl<T: Default + 'static> GraphForm<T> {
         Self::default()
     }
 
-    pub fn insert(&mut self, node: Box<dyn Node<T>>) {
+    pub fn insert(&mut self, node: Box<dyn Node<T>>) -> anyhow::Result<()> {
         if let Some(next) = &mut self.nodes {
-            insert_node(next[0].as_mut(), node).unwrap();
+            insert_node(next[0].as_mut(), node)?;
         } else {
             self.nodes = Some(vec![node]);
         }
+        Ok(())
     }
 
     pub fn print(&self) {
@@ -95,77 +93,46 @@ impl<T: Default + 'static> GraphForm<T> {
         }
     }
 
-    pub fn load_data_arrays(onnx: &OnnxModel) -> TensorMap {
+    pub fn load_data_arrays(onnx: &OnnxModel) -> anyhow::Result<TensorMap> {
         let mut map = TensorMap::new();
 
-        onnx.get_output_tensors().for_each(|tensor| {
+        for tensor in onnx.get_output_tensors() {
             let shape = tensor.shape();
             if tensor.data().is_ok() {
-                let mut hasher = DefaultHasher::new();
-                tensor.name().hash(&mut hasher);
-                let id = hasher.finish();
-                map.insert(id, TypedArray::from_tensor(&tensor));
+                map.insert_str(tensor.name(), TypedArray::from_tensor(&tensor)?);
             } else if shape.iter().any(|&d| d < 0) {
-                let mut hasher = DefaultHasher::new();
-                tensor.name().hash(&mut hasher);
-                let id = hasher.finish();
-                map.insert(id, TypedArray::Undefined);
+                map.insert_str(tensor.name(), TypedArray::Undefined);
             } else if !shape.is_empty() {
-                let mut hasher = DefaultHasher::new();
-                tensor.name().hash(&mut hasher);
-                let id = hasher.finish();
-                map.insert(id, TypedArray::from_tensor_empty(tensor, shape));
+                map.insert_str(tensor.name(), TypedArray::from_tensor_empty(tensor, shape));
             } else {
-                let mut hasher = DefaultHasher::new();
-                tensor.name().hash(&mut hasher);
-                let id = hasher.finish();
-                map.insert(id, TypedArray::Undefined);
+                map.insert_str(tensor.name(), TypedArray::Undefined);
             }
-        });
+        }
 
-        onnx.operations().iter().for_each(|s| {
-            s.outputs().iter().for_each(|out| {
-                let mut hasher = DefaultHasher::new();
-                out.hash(&mut hasher);
-                let id = hasher.finish();
-                map.insert(id, TypedArray::Undefined);
-            });
-        });
+        for s in onnx.operations() {
+            for out in s.outputs() {
+                map.insert_str(out, TypedArray::Undefined);
+            }
+        }
 
-        onnx.tensors().iter().for_each(|(_, tensor)| {
+        for (_, tensor) in onnx.tensors() {
             let shape = tensor.shape();
-
             if tensor.data().is_ok() {
-                let mut hasher = DefaultHasher::new();
-                tensor.name().hash(&mut hasher);
-                let id = hasher.finish();
-                map.insert(id, TypedArray::from_tensor(&tensor));
+                map.insert_str(tensor.name(), TypedArray::from_tensor(&tensor)?);
             } else if shape.iter().any(|&d| d < 0) {
-                let mut hasher = DefaultHasher::new();
-                tensor.name().hash(&mut hasher);
-                let id = hasher.finish();
-                map.insert(id, TypedArray::Undefined);
+                map.insert_str(tensor.name(), TypedArray::Undefined);
             } else if !shape.is_empty() {
-                let mut hasher = DefaultHasher::new();
-                tensor.name().hash(&mut hasher);
-                let id = hasher.finish();
-                map.insert(id, TypedArray::from_tensor_empty(tensor, shape));
+                map.insert_str(tensor.name(), TypedArray::from_tensor_empty(tensor, shape));
             } else {
-                let mut hasher = DefaultHasher::new();
-                tensor.name().hash(&mut hasher);
-                let id = hasher.finish();
-                map.insert(id, TypedArray::Undefined);
+                map.insert_str(tensor.name(), TypedArray::Undefined);
             }
-        });
+        }
 
-        onnx.get_input_tensors().for_each(|tensor| {
-            let mut hasher = DefaultHasher::new();
-            tensor.name().hash(&mut hasher);
-            let id = hasher.finish();
-            map.insert(id, TypedArray::Undefined);
-        });
+        for tensor in onnx.get_input_tensors() {
+            map.insert_str(tensor.name(), TypedArray::Undefined);
+        }
 
-        map
+        Ok(map)
     }
 
     fn get_specifc_node_from_operation(
@@ -232,8 +199,8 @@ impl<T: Default + 'static> GraphForm<T> {
             "Reshape" => Box::new(ReshapeNode::from_onnx_operation(elem)?),
             "Shape" => Box::new(ShapeNode::from_onnx_operation(elem)?),
             "Slice" => Box::new(SliceNode::new(elem)),
-            _ => {
-                panic!("Unsupported node with name {}", elem.name())
+            other => {
+                anyhow::bail!("Unsupported node op_type={other} name={}", elem.name())
             }
         };
         Ok(res)
@@ -246,33 +213,26 @@ impl<T: Default + 'static> GraphForm<T> {
         let vec = onnx
             .inputs()
             .iter()
-            .map(|name| {
-                let mut hasher = DefaultHasher::new();
-                name.hash(&mut hasher);
-                let id = hasher.finish();
-                id
-            })
+            .map(|name| TensorMap::hash_name(name))
             .collect();
         ret.inputs = vec;
 
-        let mut map = Self::load_data_arrays(&onnx);
+        let mut map = Self::load_data_arrays(&onnx)?;
 
         // onnx.execution_order()?.into_iter().for_each(|elem| {
         for elem in onnx.execution_order()? {
-            ret.insert(Self::get_specifc_node_from_operation(elem, &mut map)?);
+            ret.insert(Self::get_specifc_node_from_operation(elem, &mut map)?)?;
         }
 
         Ok((ret, map))
     }
 
     pub fn set_input(&self, omap: &mut TensorMap, input_name: &str, data: TypedArray) {
-        let mut hasher = DefaultHasher::new();
-        input_name.hash(&mut hasher);
-        let id = hasher.finish();
+        let id = TensorMap::hash_name(input_name);
         if !self.inputs.contains(&id) {
             println!("No such input called {}", input_name);
         }
-        match omap.get_mut(&id) {
+        match omap.get_mut_str(input_name) {
             Some(inner) => {
                 *inner = data;
             }
@@ -286,28 +246,24 @@ impl<T: Default + 'static> GraphForm<T> {
         &mut self,
         omap: &mut TensorMap,
         inputs_info: [(&str, TypedArrayDiscriminants, &[usize]); N],
-    ) {
+    ) -> anyhow::Result<()> {
         for (name, discriminant, shape) in inputs_info {
-            let mut hasher = DefaultHasher::new();
-            name.hash(&mut hasher);
-            let id = hasher.finish();
+            let id = TensorMap::hash_name(name);
             if !self.inputs.contains(&id) {
                 println!("!!! No such input called {name} !!!");
             }
-            let mut hasher = DefaultHasher::new();
-            name.hash(&mut hasher);
-            let id = hasher.finish();
-            omap.insert(
-                id,
-                TypedArray::empty_from_discriminant(discriminant, shape).ensure_contiguous(),
+            omap.insert_str(
+                name,
+                TypedArray::empty_from_discriminant(discriminant, shape),
             );
         }
 
         if let Some(start) = &mut self.nodes {
             for next in start {
-                next.determine_output_shape(omap);
+                next.determine_output_shape(omap)?;
             }
         }
+        Ok(())
     }
 
     pub fn rearange_for_parallel_branches(&mut self) {}
@@ -343,7 +299,7 @@ impl<T: Default + 'static> GraphForm<T> {
         }
     }
 
-    pub fn pass(&self, omap: &mut TensorMap) {
+    pub fn pass(&self, omap: &mut TensorMap) -> anyhow::Result<()> {
         self.inputs.iter().for_each(|input| {
             let input_array = omap.get(input);
             match input_array {
@@ -358,9 +314,10 @@ impl<T: Default + 'static> GraphForm<T> {
         });
         if let Some(nodes) = &self.nodes {
             for node in nodes {
-                pass_node(node.as_ref(), omap);
+                pass_node(node.as_ref(), omap)?;
             }
         }
+        Ok(())
     }
 }
 

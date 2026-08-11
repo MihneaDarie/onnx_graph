@@ -77,8 +77,11 @@ impl<T: Default> FromOnnxOperation for ConvNode<T> {
             auto_pad: {
                 match attrs.get("auto_pad") {
                     Some(av) => {
-                        let pad = av.as_string().unwrap();
-                        AutoPad::from_str(pad).unwrap()
+                        let pad = av
+                            .as_string()
+                            .ok_or_else(|| anyhow::anyhow!("Conv: auto_pad must be string"))?;
+                        AutoPad::from_str(pad)
+                            .map_err(|e| anyhow::anyhow!("Conv: invalid auto_pad {pad:?}: {e}"))?
                     }
                     None => AutoPad::NOTSET,
                 }
@@ -87,7 +90,7 @@ impl<T: Default> FromOnnxOperation for ConvNode<T> {
                 match attrs.get("kernel_shape") {
                     Some(av) => av
                         .as_ints()
-                        .unwrap()
+                        .ok_or_else(|| anyhow::anyhow!("Conv: kernel_shape must be ints"))?
                         .to_vec()
                         .iter()
                         .map(|&val| val as usize)
@@ -99,7 +102,7 @@ impl<T: Default> FromOnnxOperation for ConvNode<T> {
                 match attrs.get("pads") {
                     Some(av) => av
                         .as_ints()
-                        .unwrap()
+                        .ok_or_else(|| anyhow::anyhow!("Conv: pads must be ints"))?
                         .to_vec()
                         .iter()
                         .map(|&val| val as usize)
@@ -111,7 +114,7 @@ impl<T: Default> FromOnnxOperation for ConvNode<T> {
                 match attrs.get("strides") {
                     Some(av) => av
                         .as_ints()
-                        .unwrap()
+                        .ok_or_else(|| anyhow::anyhow!("Conv: strides must be ints"))?
                         .to_vec()
                         .iter()
                         .map(|&val| val as usize)
@@ -123,7 +126,7 @@ impl<T: Default> FromOnnxOperation for ConvNode<T> {
                 match attrs.get("dilations") {
                     Some(av) => av
                         .as_ints()
-                        .unwrap()
+                        .ok_or_else(|| anyhow::anyhow!("Conv: dilations must be ints"))?
                         .to_vec()
                         .iter()
                         .map(|&val| val as usize)
@@ -133,7 +136,9 @@ impl<T: Default> FromOnnxOperation for ConvNode<T> {
             },
             group: {
                 match attrs.get("groups") {
-                    Some(av) => av.as_int().unwrap(),
+                    Some(av) => av
+                        .as_int()
+                        .ok_or_else(|| anyhow::anyhow!("Conv: groups must be int"))?,
                     None => 0,
                 }
             },
@@ -171,7 +176,7 @@ impl<T: Default> ConvNode<T> {
             w: u64::default(),
             b: None,
             o: u64::default(),
-            auto_pad: AutoPad::from_str(auto_pad).unwrap(),
+            auto_pad: AutoPad::from_str(auto_pad).unwrap_or(AutoPad::NOTSET),
             kernel_shape,
             group,
             pads,
@@ -234,25 +239,29 @@ impl<T: Default + 'static> Node<T> for ConvNode<T> {
         self.next_node.as_ref()
     }
 
-    fn execute(&self, omap: &mut TensorMap) {
+    fn execute(&self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let zero = 0;
-        let b = self.b.as_ref().unwrap_or(&zero);
+        let b_key = self.b.as_ref().unwrap_or(&zero);
 
-        let [x, w, b, o] = omap.get_disjoint_mut([&self.x, &self.w, b, &self.o]);
-        let x = &*x.unwrap();
-        let w = &*w.unwrap();
-        let b = b.map(|b| &*b);
-
-        match o {
-            Some(result) => {
-                let cfg = Conv2D {
-                    pad: self.pads.first().copied().unwrap_or(0),
-                    stride: self.strides.first().copied().unwrap_or(1),
-                };
-                x.conv(w, b, &cfg, result, self.activation).unwrap();
-            }
-            _ => panic!("ConvNode: missing input(s) - x={} w={}", self.x, self.w),
+        let [x, w, b, o] = omap.get_disjoint_mut([&self.x, &self.w, b_key, &self.o]);
+        crate::debug_check_tensors!("ConvNode", x => self.x, w => self.w, o => self.o);
+        if self.b.is_some() {
+            crate::debug_check_tensors!("ConvNode", b => *b_key);
         }
+        let w = w.map(|val| &*val);
+        let b_tensor = if self.b.is_some() {
+            b.map(|val| &*val)
+        } else {
+            None
+        };
+        if let (Some(x), Some(w), Some(out)) = (x, w, o) {
+            let cfg = Conv2D {
+                pad: self.pads.first().copied().unwrap_or(0),
+                stride: self.strides.first().copied().unwrap_or(1),
+            };
+            x.conv(w, b_tensor, &cfg, out, self.activation)?;
+        }
+        Ok(())
     }
 
     fn print(&self) {
@@ -266,7 +275,7 @@ impl<T: Default + 'static> Node<T> for ConvNode<T> {
         }
     }
 
-    fn determine_output_shape(&mut self, omap: &mut TensorMap) {
+    fn determine_output_shape(&mut self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [x, w, o] = omap.get_disjoint_mut([&self.x, &self.w, &self.o]);
         let x = x.map(|arr| &*arr);
         let w = w.map(|arr| &*arr);
@@ -296,9 +305,10 @@ impl<T: Default + 'static> Node<T> for ConvNode<T> {
         }
         if let Some(list) = &mut self.next_node {
             for next in list {
-                next.determine_output_shape(omap);
+                next.determine_output_shape(omap)?;
             }
         }
+        Ok(())
     }
 }
 

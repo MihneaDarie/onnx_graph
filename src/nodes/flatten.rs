@@ -2,7 +2,7 @@ use std::{any::Any, collections::HashMap};
 
 use crate::{
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
-    nodes_utils::hash_string,
+    nodes_utils::{hash_string, slice_memory_order_mut_or_fix, slice_memory_order_or_fix},
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -84,17 +84,15 @@ impl<T: Default + 'static> Node<T> for FlattenNode<T> {
         self.next_node.as_ref()
     }
 
-    fn execute(&self, omap: &mut TensorMap) {
+    fn execute(&self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [x, o] = omap.get_disjoint_mut([&self.x, &self.o]);
-        let x = &*x.unwrap();
-
-        match o {
-            Some(result) => {
-                let axis = self.axis.unwrap();
-                x.flatten_op(axis, result).unwrap();
-            }
-            None => panic!("FlattenNode: missing input {}", self.x),
+        let x = x.map(|val| &*val);
+        crate::debug_check_tensors!("FlattenNode", x => self.x, o => self.o);
+        if let (Some(x), Some(out)) = (x, o) {
+            let axis = self.axis.ok_or_else(|| anyhow::anyhow!("FlattenNode: missing axis"))?;
+            x.flatten_op(axis, out)?;
         }
+        Ok(())
     }
 
     fn output_hashes(&self) -> Vec<u64> {
@@ -126,7 +124,7 @@ impl<T: Default + 'static> Node<T> for FlattenNode<T> {
         }
     }
 
-    fn determine_output_shape(&mut self, omap: &mut TensorMap) {
+    fn determine_output_shape(&mut self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [x, o] = omap.get_disjoint_mut([&self.x, &self.o]);
         let x = x.map(|arr| &*arr);
 
@@ -148,9 +146,10 @@ impl<T: Default + 'static> Node<T> for FlattenNode<T> {
 
         if let Some(list) = &mut self.next_node {
             for next in list {
-                next.determine_output_shape(omap);
+                next.determine_output_shape(omap)?;
             }
         }
+        Ok(())
     }
 }
 
@@ -159,10 +158,10 @@ impl TypedArray {
         use ndarray::ArrayD;
         use ndarray::IxDyn;
 
-        let rank = self.shape().unwrap().len() as i64;
+        let rank = self.shape().ok_or_else(|| anyhow::anyhow!("Flatten: undefined input"))?.len() as i64;
         let axis = if axis < 0 { axis + rank } else { axis } as usize;
 
-        let shape = self.shape().unwrap();
+        let shape = self.shape().ok_or_else(|| anyhow::anyhow!("Flatten: undefined input"))?;
         let dim0: usize = shape[..axis].iter().product::<usize>().max(1);
         let dim1: usize = shape[axis..].iter().product::<usize>().max(1);
         let out_shape = [dim0, dim1];
@@ -177,8 +176,9 @@ impl TypedArray {
                     *o = TypedArray::$variant(ArrayD::zeros(IxDyn(&out_shape)));
                 }
                 if let TypedArray::$variant(out) = o {
-                    let dst = out.as_slice_memory_order_mut().unwrap();
-                    let src = $a.as_slice_memory_order().unwrap();
+                    let mut src_arr = $a.clone();
+                    let dst = slice_memory_order_mut_or_fix(out, "flatten")?;
+                    let src = slice_memory_order_or_fix(&mut src_arr, "flatten")?;
                     dst.copy_from_slice(src);
                 }
             }};
@@ -200,8 +200,9 @@ impl TypedArray {
                             *o = TypedArray::Bool(ArrayD::from_elem(IxDyn(&out_shape), false));
                         }
                         if let TypedArray::Bool(out) = o {
-                            let dst = out.as_slice_memory_order_mut().unwrap();
-                            let src = a.as_slice_memory_order().unwrap();
+                            let mut src_arr = a.clone();
+                            let dst = slice_memory_order_mut_or_fix(out, "flatten")?;
+                            let src = slice_memory_order_or_fix(&mut src_arr, "flatten")?;
                             dst.copy_from_slice(src);
                         }
                     }

@@ -2,7 +2,7 @@ use std::{any::Any, collections::HashMap};
 
 use crate::{
     nodes::{node::Node, unique_ids::UniqueId},
-    nodes_utils::hash_string,
+    nodes_utils::{hash_string, slice_memory_order_mut_or_fix},
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -79,20 +79,19 @@ impl<T: Default + 'static> Node<T> for ExpandNode<T> {
         vec![self.input.clone(), self.shape.clone()]
     }
 
-    fn execute(&self, omap: &mut TensorMap) {
+    fn execute(&self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [a, b, o] = omap.get_disjoint_mut([&self.input, &self.shape, &self.o]);
-        let a = &*a.unwrap();
-        let b = &*b.unwrap();
-
-        match o {
-            Some(out) => {
-                a.expand(b, out).unwrap();
-            }
-            _ => panic!(
-                "ExpandNode: missing input(s) - a={} b={}",
-                self.input, self.shape
-            ),
+        crate::debug_check_tensors!(
+            "ExpandNode",
+            a => self.input,
+            b => self.shape,
+            o => self.o,
+        );
+        let b = b.map(|val| &*val);
+        if let (Some(a), Some(b), Some(out)) = (a, b, o) {
+            a.expand(b, out)?;
         }
+        Ok(())
     }
 
     fn output_hashes(&self) -> Vec<u64> {
@@ -109,7 +108,7 @@ impl<T: Default + 'static> Node<T> for ExpandNode<T> {
         }
     }
 
-    fn determine_output_shape(&mut self, omap: &mut TensorMap) {
+    fn determine_output_shape(&mut self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [input, shape, o] = omap.get_disjoint_mut([&self.input, &self.shape, &self.o]);
         let input = input.map(|inner| &*inner);
         let shape = shape.map(|inner| &*inner);
@@ -142,9 +141,10 @@ impl<T: Default + 'static> Node<T> for ExpandNode<T> {
 
         if let Some(list) = &mut self.next_node {
             for next in list {
-                next.determine_output_shape(omap);
+                next.determine_output_shape(omap)?;
             }
         }
+        Ok(())
     }
 }
 
@@ -219,7 +219,7 @@ impl TypedArray {
                         .broadcast(IxDyn(&out_shape))
                         .ok_or_else(|| anyhow::anyhow!("Expand: broadcast failed"))?;
 
-                    let dst = out.as_slice_memory_order_mut().unwrap();
+                    let dst = slice_memory_order_mut_or_fix(out, "expand")?;
                     for (d, s) in dst.iter_mut().zip(view.iter()) {
                         *d = *s;
                     }

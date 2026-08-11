@@ -2,7 +2,7 @@ use std::{any::Any, collections::HashMap};
 
 use crate::{
     nodes::{node::Node, unique_ids::UniqueId},
-    nodes_utils::hash_string,
+    nodes_utils::{hash_string, slice_memory_order_mut_or_fix},
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -72,19 +72,23 @@ impl<T: Default + 'static> Node<T> for RangeNode<T> {
         self.next_node.as_ref()
     }
 
-    fn execute(&self, omap: &mut TensorMap) {
+    fn execute(&self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [start, limit, delta, o] =
             omap.get_disjoint_mut([&self.start, &self.limit, &self.delta, &self.o]);
-        let start = start.map(|inner| &*inner);
-        let limit = limit.map(|inner| &*inner);
-        let delta = delta.map(|inner| &*inner);
-
-        match (start, limit, delta, o) {
-            (Some(start), Some(limit), Some(delta), Some(result)) => {
-                TypedArray::range(start, limit, delta, result).unwrap();
-            }
-            _ => panic!("RangeNode: missing input {}", self.start),
+        crate::debug_check_tensors!(
+            "RangeNode",
+            start => self.start,
+            limit => self.limit,
+            delta => self.delta,
+            o => self.o,
+        );
+        let start = start.map(|val| &*val);
+        let limit = limit.map(|val| &*val);
+        let delta = delta.map(|val| &*val);
+        if let (Some(start), Some(limit), Some(delta), Some(out)) = (start, limit, delta, o) {
+            TypedArray::range(start, limit, delta, out)?;
         }
+        Ok(())
     }
 
     fn output_hashes(&self) -> Vec<u64> {
@@ -119,7 +123,7 @@ impl<T: Default + 'static> Node<T> for RangeNode<T> {
         }
     }
 
-    fn determine_output_shape(&mut self, omap: &mut TensorMap) {
+    fn determine_output_shape(&mut self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [start, limit, delta, o] =
             omap.get_disjoint_mut([&self.start, &self.limit, &self.delta, &self.o]);
         let start = start.map(|inner| &*inner);
@@ -135,9 +139,9 @@ impl<T: Default + 'static> Node<T> for RangeNode<T> {
                         TypedArray::$variant(d),
                     ) = (start, limit, delta)
                     {
-                        let s = *s.iter().next().unwrap();
-                        let l = *l.iter().next().unwrap();
-                        let d = *d.iter().next().unwrap();
+                        let s = *s.iter().next().ok_or_else(|| anyhow::anyhow!("Range: empty start"))?;
+                        let l = *l.iter().next().ok_or_else(|| anyhow::anyhow!("Range: empty limit"))?;
+                        let d = *d.iter().next().ok_or_else(|| anyhow::anyhow!("Range: empty delta"))?;
                         let n = (((l - s) as f64) / (d as f64)).ceil().max(0.0) as usize;
                         *o = TypedArray::$variant(ArrayD::zeros(IxDyn(&[n])));
                     }
@@ -156,9 +160,10 @@ impl<T: Default + 'static> Node<T> for RangeNode<T> {
 
         if let Some(list) = &mut self.next_node {
             for next in list {
-                next.determine_output_shape(omap);
+                next.determine_output_shape(omap)?;
             }
         }
+        Ok(())
     }
 }
 
@@ -174,15 +179,24 @@ impl TypedArray {
                 use ndarray::ArrayD;
                 use ndarray::IxDyn;
                 let s = match start {
-                    TypedArray::$variant(a) => *a.iter().next().unwrap(),
+                    TypedArray::$variant(a) => *a
+                        .iter()
+                        .next()
+                        .ok_or_else(|| anyhow::anyhow!("Range: empty start"))?,
                     _ => anyhow::bail!("Range: start type mismatch"),
                 };
                 let l = match limit {
-                    TypedArray::$variant(a) => *a.iter().next().unwrap(),
+                    TypedArray::$variant(a) => *a
+                        .iter()
+                        .next()
+                        .ok_or_else(|| anyhow::anyhow!("Range: empty limit"))?,
                     _ => anyhow::bail!("Range: limit type mismatch"),
                 };
                 let d = match delta {
-                    TypedArray::$variant(a) => *a.iter().next().unwrap(),
+                    TypedArray::$variant(a) => *a
+                        .iter()
+                        .next()
+                        .ok_or_else(|| anyhow::anyhow!("Range: empty delta"))?,
                     _ => anyhow::bail!("Range: delta type mismatch"),
                 };
 
@@ -198,7 +212,7 @@ impl TypedArray {
                     *o = TypedArray::$variant(ArrayD::from_shape_vec(IxDyn(&[n]), data)?)
                         .ensure_contiguous();
                 } else if let TypedArray::$variant(out) = o {
-                    let dst = out.as_slice_memory_order_mut().unwrap();
+                    let dst = slice_memory_order_mut_or_fix(out, "range")?;
                     for i in 0..n {
                         dst[i] = s + (i as $T) * d;
                     }

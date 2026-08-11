@@ -137,16 +137,20 @@ macro_rules! from_shape_vec_from_datatype {
             $(
                 DataType::$variant => {
                         let vec = $data
-                                  .unwrap()
                                   .chunks_exact(std::mem::size_of::<$T>())
-                                  .map(|b| <$T>::from_le_bytes(b.try_into().unwrap()))
-                                  .collect::<Vec<$T>>();
-                    TypedArray::$variant(ArrayD::from_shape_vec($shape, vec).unwrap())
+                                  .map(|b| {
+                                      let bytes: [u8; std::mem::size_of::<$T>()] = b
+                                          .try_into()
+                                          .map_err(|_| anyhow::anyhow!("invalid byte chunk for {:?}", $data_type))?;
+                                      Ok(<$T>::from_le_bytes(bytes))
+                                  })
+                                  .collect::<anyhow::Result<Vec<$T>>>()?;
+                    TypedArray::$variant(ArrayD::from_shape_vec($shape, vec).map_err(|e| anyhow::anyhow!("from_shape_vec failed for {:?}: {e}", $data_type))?)
                 }
             )+
             DataType::Bool => {
-                let bools = $data.unwrap().iter().map(|&b| b != 0).collect::<Vec<bool>>();
-                    TypedArray::Bool(ArrayD::from_shape_vec($shape, bools).unwrap())
+                let bools = $data.iter().map(|&b| b != 0).collect::<Vec<bool>>();
+                    TypedArray::Bool(ArrayD::from_shape_vec($shape, bools).map_err(|e| anyhow::anyhow!("from_shape_vec failed for Bool: {e}"))?)
             }
             _ => TypedArray::Undefined,
         }

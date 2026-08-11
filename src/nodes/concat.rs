@@ -40,7 +40,9 @@ impl<T: Default> FromOnnxOperation for ConcatNode<T> {
         let mut concat = Self {
             axis: {
                 match attrs.get("axis") {
-                    Some(av) => av.as_int().unwrap(),
+                    Some(av) => av
+                        .as_int()
+                        .ok_or_else(|| anyhow::anyhow!("Concat: axis must be int"))?,
                     None => 0,
                 }
             },
@@ -102,22 +104,23 @@ impl<T: Default + 'static> Node<T> for ConcatNode<T> {
         self.next_node.as_ref()
     }
 
-    fn execute(&self, omap: &mut TensorMap) {
+    fn execute(&self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let arrays: Vec<&TypedArray> = self
             .inputs
             .iter()
-            .map(|name| {
-                omap.get(name)
-                    .unwrap_or_else(|| panic!("ConcatNode: missing input {}", name))
+            .map(|id| {
+                omap.get(id).ok_or_else(|| {
+                    anyhow::anyhow!("ConcatNode: missing input tensor (id={id})")
+                })
             })
-            .collect();
+            .collect::<anyhow::Result<_>>()?;
 
         let ndim = match &arrays[0] {
             TypedArray::Float(a) => a.ndim(),
             TypedArray::Double(a) => a.ndim(),
             TypedArray::Int32(a) => a.ndim(),
             TypedArray::Int64(a) => a.ndim(),
-            _ => panic!("unsupported type in concat"),
+            _ => anyhow::bail!("ConcatNode: unsupported type"),
         };
 
         let axis = if self.axis < 0 {
@@ -128,8 +131,9 @@ impl<T: Default + 'static> Node<T> for ConcatNode<T> {
 
         let refs: Vec<&TypedArray> = arrays;
         let mut result = TypedArray::Undefined;
-        TypedArray::concat(&refs, axis, &mut result).unwrap();
+        TypedArray::concat(&refs, axis, &mut result)?;
         omap.insert(self.o.clone(), result);
+        Ok(())
     }
 
     fn print(&self) {
@@ -142,7 +146,7 @@ impl<T: Default + 'static> Node<T> for ConcatNode<T> {
         }
     }
 
-    fn determine_output_shape(&mut self, omap: &mut TensorMap) {
+    fn determine_output_shape(&mut self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let first_input = omap.get(&self.inputs[0]);
         let mut out_shape = Vec::new();
         if let Some(first) = first_input {
@@ -177,9 +181,10 @@ impl<T: Default + 'static> Node<T> for ConcatNode<T> {
 
         if let Some(list) = &mut self.next_node {
             for next in list {
-                next.determine_output_shape(omap);
+                next.determine_output_shape(omap)?;
             }
         }
+        Ok(())
     }
 }
 

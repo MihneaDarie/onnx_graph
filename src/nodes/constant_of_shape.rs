@@ -42,7 +42,8 @@ impl<T: Default> FromOnnxOperation for ConstantOfShapeNode<T> {
             .attributes()
             .get("value")
             .and_then(|val| AttributeValue::as_tensor(val))
-            .map(|tensor| TypedArray::from_tensor(&tensor));
+            .map(|tensor| TypedArray::from_tensor(&tensor))
+            .transpose()?;
         constant_of_shape.value = value;
 
         if elem.inputs().len() != 0 {
@@ -107,21 +108,23 @@ impl<T: Default + 'static> Node<T> for ConstantOfShapeNode<T> {
         self.next_node.as_ref()
     }
 
-    fn execute(&self, omap: &mut TensorMap) {
+    fn execute(&self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [shape_array, o] = omap.get_disjoint_mut([&self.shape_array, &self.o]);
         let shape_array = shape_array.map(|inner| &*inner);
-
-        match (shape_array, &self.value, o) {
-            (Some(x), Some(value), Some(result)) => {
-                if let Err(e) = x.constant_of_shape(value, result) {
-                    println!("!!!{e}");
+        crate::debug_check_tensors!("ConstantOfShapeNode", o => self.o);
+        if let Some(out) = o {
+            match (shape_array, &self.value) {
+                (Some(x), Some(value)) => x.constant_of_shape(value, out)?,
+                (None, Some(value)) => {
+                    *out = value.clone();
                 }
+                _ => anyhow::bail!(
+                    "ConstantOfShapeNode: missing shape tensor (id={})",
+                    self.shape_array
+                ),
             }
-            (None, Some(value), Some(result)) => {
-                *result = value.clone();
-            }
-            _ => panic!("ConstantOfShapeNode: missing input {}", self.shape_array),
         }
+        Ok(())
     }
 
     fn output_hashes(&self) -> Vec<u64> {
@@ -153,27 +156,29 @@ impl<T: Default + 'static> Node<T> for ConstantOfShapeNode<T> {
         }
     }
 
-    fn determine_output_shape(&mut self, omap: &mut TensorMap) {
+    fn determine_output_shape(&mut self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [x, o] = omap.get_disjoint_mut([&self.shape_array, &self.o]);
         let x = x.map(|inner| &*inner);
-
-        match (x, &self.value, o) {
-            (Some(x), Some(value), Some(result)) => {
-                if let Err(e) = x.constant_of_shape(value, result) {
-                    println!("!!!{e}");
+        crate::debug_check_tensors!("ConstantOfShapeNode", o => self.o);
+        if let Some(out) = o {
+            match (x, &self.value) {
+                (Some(x), Some(value)) => x.constant_of_shape(value, out)?,
+                (None, Some(value)) => {
+                    *out = value.clone();
                 }
+                _ => anyhow::bail!(
+                    "ConstantOfShapeNode: missing shape tensor (id={})",
+                    self.shape_array
+                ),
             }
-            (None, Some(value), Some(result)) => {
-                *result = value.clone();
-            }
-            _ => panic!("ConstantOfShapeNode: missing input {}", self.shape_array),
         }
 
         if let Some(list) = &mut self.next_node {
             for next in list {
-                next.determine_output_shape(omap);
+                next.determine_output_shape(omap)?;
             }
         }
+        Ok(())
     }
 }
 

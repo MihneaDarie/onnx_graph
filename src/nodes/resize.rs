@@ -2,7 +2,7 @@ use std::{any::Any, collections::HashMap, str::FromStr};
 
 use crate::{
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
-    nodes_utils::hash_string,
+    nodes_utils::{hash_string, slice_memory_order_mut_or_fix, slice_memory_order_or_fix},
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -151,14 +151,16 @@ impl<T: Default> FromOnnxOperation for ResizeNode<T> {
             unique_id: UniqueId::Resize,
 
             antialias: match attrs.get("antialias") {
-                Some(av) => av.as_int().unwrap(),
+                Some(av) => av
+                    .as_int()
+                    .ok_or_else(|| anyhow::anyhow!("Resize: antialias must be int"))?,
                 None => 0,
             },
             axes: {
                 match attrs.get("axes") {
                     Some(av) => av
                         .as_ints()
-                        .unwrap()
+                        .ok_or_else(|| anyhow::anyhow!("Resize: axes must be ints"))?
                         .iter()
                         .map(|&val| val as usize)
                         .collect(),
@@ -166,32 +168,65 @@ impl<T: Default> FromOnnxOperation for ResizeNode<T> {
                 }
             },
             mode: match attrs.get("mode") {
-                Some(av) => Mode::from_str(av.as_string().unwrap()).unwrap(),
+                Some(av) => {
+                    let mode = av
+                        .as_string()
+                        .ok_or_else(|| anyhow::anyhow!("Resize: mode must be string"))?;
+                    Mode::from_str(mode)
+                        .map_err(|e| anyhow::anyhow!("Resize: invalid mode {mode:?}: {e}"))?
+                }
                 None => Mode::default(),
             },
             cubic_coeff_a: match attrs.get("cubic_coeff_a") {
-                Some(av) => av.as_float().unwrap(),
+                Some(av) => av
+                    .as_float()
+                    .ok_or_else(|| anyhow::anyhow!("Resize: cubic_coeff_a must be float"))?,
                 None => 0.0f32,
             },
             exclude_outside: match attrs.get("exclude_outside") {
-                Some(av) => av.as_int().unwrap() != 0,
+                Some(av) => av
+                    .as_int()
+                    .ok_or_else(|| anyhow::anyhow!("Resize: exclude_outside must be int"))?
+                    != 0,
                 None => false,
             },
             extrapolation_value: match attrs.get("extrapolation_value") {
-                Some(av) => av.as_float().unwrap(),
+                Some(av) => av
+                    .as_float()
+                    .ok_or_else(|| anyhow::anyhow!("Resize: extrapolation_value must be float"))?,
                 None => 0.0f32,
             },
             keep_aspect_ratio_policy: match attrs.get("keep_aspect_ratio_policy") {
-                Some(av) => KeepAspectRatioPolicy::from_str(av.as_string().unwrap()).unwrap(),
+                Some(av) => {
+                    let policy = av.as_string().ok_or_else(|| {
+                        anyhow::anyhow!("Resize: keep_aspect_ratio_policy must be string")
+                    })?;
+                    KeepAspectRatioPolicy::from_str(policy).map_err(|e| {
+                        anyhow::anyhow!("Resize: invalid keep_aspect_ratio_policy {policy:?}: {e}")
+                    })?
+                }
                 None => KeepAspectRatioPolicy::default(),
             },
             neares_mode: match attrs.get("nearest_mode") {
-                Some(av) => NearestMode::from_str(av.as_string().unwrap()).unwrap(),
+                Some(av) => {
+                    let mode = av
+                        .as_string()
+                        .ok_or_else(|| anyhow::anyhow!("Resize: nearest_mode must be string"))?;
+                    NearestMode::from_str(mode)
+                        .map_err(|e| anyhow::anyhow!("Resize: invalid nearest_mode {mode:?}: {e}"))?
+                }
                 None => NearestMode::default(),
             },
             coordinate_transformation_mode: match attrs.get("coordinate_transformation_mode") {
                 Some(av) => {
-                    CoordinateTransformationMode::from_str(av.as_string().unwrap()).unwrap()
+                    let mode = av.as_string().ok_or_else(|| {
+                        anyhow::anyhow!("Resize: coordinate_transformation_mode must be string")
+                    })?;
+                    CoordinateTransformationMode::from_str(mode).map_err(|e| {
+                        anyhow::anyhow!(
+                            "Resize: invalid coordinate_transformation_mode {mode:?}: {e}"
+                        )
+                    })?
                 }
                 None => CoordinateTransformationMode::default(),
             },
@@ -230,17 +265,17 @@ impl<T: Default> ResizeNode<T> {
 
             antialias,
             axes,
-            mode: Mode::from_str(mode).unwrap(),
+            mode: Mode::from_str(mode).unwrap_or_default(),
             cubic_coeff_a,
             exclude_outside,
             extrapolation_value,
             keep_aspect_ratio_policy: KeepAspectRatioPolicy::from_str(keep_aspect_ratio_policy)
-                .unwrap(),
-            neares_mode: NearestMode::from_str(neares_mode).unwrap(),
+                .unwrap_or_default(),
+            neares_mode: NearestMode::from_str(neares_mode).unwrap_or_default(),
             coordinate_transformation_mode: CoordinateTransformationMode::from_str(
                 coordinate_transformation_mode,
             )
-            .unwrap(),
+            .unwrap_or_default(),
             unique_id: UniqueId::Resize,
             next_node: None,
         }
@@ -299,22 +334,34 @@ impl<T: Default + 'static> Node<T> for ResizeNode<T> {
         vec![self.x.clone(), roi, scales, sizes]
     }
 
-    fn execute(&self, omap: &mut TensorMap) {
+    fn execute(&self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let empty = 0;
-        let sizes = self.sizes.as_ref().unwrap_or(&empty);
-        let scales = self.scales.as_ref().unwrap_or(&empty);
+        let sizes_key = self.sizes.as_ref().unwrap_or(&empty);
+        let scales_key = self.scales.as_ref().unwrap_or(&empty);
 
-        let [x, sizes, scales, o] = omap.get_disjoint_mut([&self.x, sizes, scales, &self.o]);
-        let x = &*x.unwrap();
-        let sizes = sizes.as_deref();
-        let scales = scales.as_deref();
-
-        match o {
-            Some(result) => {
-                x.resize(sizes, scales, &self.mode, result).unwrap();
-            }
-            None => panic!("ResizeNode: missing input x={}", self.x),
+        let [x, sizes, scales, o] =
+            omap.get_disjoint_mut([&self.x, sizes_key, scales_key, &self.o]);
+        crate::debug_check_tensors!("ResizeNode", x => self.x, o => self.o);
+        if self.sizes.is_some() {
+            crate::debug_check_tensors!("ResizeNode", sizes => *sizes_key);
         }
+        if self.scales.is_some() {
+            crate::debug_check_tensors!("ResizeNode", scales => *scales_key);
+        }
+        let sizes = if self.sizes.is_some() {
+            sizes.map(|val| &*val)
+        } else {
+            None
+        };
+        let scales = if self.scales.is_some() {
+            scales.map(|val| &*val)
+        } else {
+            None
+        };
+        if let (Some(x), Some(out)) = (x, o) {
+            x.resize(sizes, scales, &self.mode, out)?;
+        }
+        Ok(())
     }
 
     fn output_hashes(&self) -> Vec<u64> {
@@ -335,12 +382,13 @@ impl<T: Default + 'static> Node<T> for ResizeNode<T> {
         }
     }
 
-    fn determine_output_shape(&mut self, omap: &mut TensorMap) {
+    fn determine_output_shape(&mut self, omap: &mut TensorMap) -> anyhow::Result<()> {
         if let Some(list) = &mut self.next_node {
             for next in list {
-                next.determine_output_shape(omap);
+                next.determine_output_shape(omap)?;
             }
         }
+        Ok(())
     }
 }
 
@@ -354,9 +402,11 @@ impl TypedArray {
     ) -> anyhow::Result<()> {
         match self {
             TypedArray::Float(x) => {
-                let x4 = x.view().into_dimensionality::<Ix4>()?;
-                let (_, _, hin, win) = x4.dim();
-                let in_sl = x4.as_slice_memory_order().unwrap();
+                let shape = x.shape();
+                let hin = shape[shape.len() - 2];
+                let win = shape[shape.len() - 1];
+                let mut x_buf = x.clone();
+                let in_sl = slice_memory_order_or_fix(&mut x_buf, "resize")?;
 
                 let (hout, wout) = match (sizes, scales) {
                     (Some(TypedArray::Int64(s)), _) => {
@@ -374,7 +424,7 @@ impl TypedArray {
                     TypedArray::Float(arr) => arr,
                     _ => unreachable!(),
                 };
-                let out_sl = out.as_slice_memory_order_mut().unwrap();
+                let out_sl = slice_memory_order_mut_or_fix(out, "resize")?;
 
                 let hw_in = hin * win;
                 let hw_out = hout * wout;

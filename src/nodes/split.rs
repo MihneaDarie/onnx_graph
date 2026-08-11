@@ -36,11 +36,15 @@ impl<T: Default> FromOnnxOperation for SplitNode<T> {
             unique_id: UniqueId::Split,
 
             axis: match attrs.get("axis") {
-                Some(av) => av.as_int().unwrap(),
+                Some(av) => av
+                    .as_int()
+                    .ok_or_else(|| anyhow::anyhow!("Split: axis must be int"))?,
                 None => 0,
             },
             num_outputs: match attrs.get("num_outputs") {
-                Some(av) => av.as_int().unwrap(),
+                Some(av) => av
+                    .as_int()
+                    .ok_or_else(|| anyhow::anyhow!("Split: num_outputs must be int"))?,
                 None => 0,
             },
             next_node: None,
@@ -101,36 +105,33 @@ impl<T: Default + 'static> Node<T> for SplitNode<T> {
         self.next_node.as_ref()
     }
 
-    fn execute(&self, omap: &mut TensorMap) {
-        let input = omap.get(&self.input);
+    fn execute(&self, omap: &mut TensorMap) -> anyhow::Result<()> {
+        let input = omap
+            .get(&self.input)
+            .ok_or_else(|| anyhow::anyhow!("SplitNode: missing input tensor (id={})", self.input))?;
 
         let split_sizes: Vec<i64> = if let Some(TypedArray::Int64(a)) = omap.get(&self.split) {
             a.iter().cloned().collect()
         } else if self.num_outputs > 0 {
-            let input_ref = input.as_ref().unwrap();
             let axis = self.axis as usize;
-            let dim = match input_ref {
+            let dim = match input {
                 TypedArray::Float(a) => a.shape()[axis],
-                _ => panic!("unsupported type"),
+                _ => anyhow::bail!("SplitNode: unsupported input type"),
             };
             let chunk = dim / self.num_outputs as usize;
             vec![chunk as i64; self.num_outputs as usize]
         } else {
-            panic!("SplitNode: no split tensor and no num_outputs");
+            anyhow::bail!("SplitNode: no split tensor and no num_outputs");
         };
 
-        match input {
-            Some(input) => {
-                let split_tensor = TypedArray::Int64(ndarray::Array1::from(split_sizes).into_dyn());
-                let mut results = Vec::new();
-                input.split(&split_tensor, self.axis, &mut results).unwrap();
+        let split_tensor = TypedArray::Int64(ndarray::Array1::from(split_sizes).into_dyn());
+        let mut results = Vec::new();
+        input.split(&split_tensor, self.axis, &mut results)?;
 
-                for (name, chunk) in self.o.iter().zip(results.into_iter()) {
-                    omap.insert(name.clone(), chunk);
-                }
-            }
-            None => panic!("SplitNode: missing input {}", self.input),
+        for (name, chunk) in self.o.iter().zip(results.into_iter()) {
+            omap.insert(name.clone(), chunk);
         }
+        Ok(())
     }
 
     fn output_hashes(&self) -> Vec<u64> {
@@ -162,12 +163,13 @@ impl<T: Default + 'static> Node<T> for SplitNode<T> {
         }
     }
 
-    fn determine_output_shape(&mut self, omap: &mut TensorMap) {
+    fn determine_output_shape(&mut self, omap: &mut TensorMap) -> anyhow::Result<()> {
         if let Some(list) = &mut self.next_node {
             for next in list {
-                next.determine_output_shape(omap);
+                next.determine_output_shape(omap)?;
             }
         }
+        Ok(())
     }
 }
 

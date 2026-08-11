@@ -2,7 +2,7 @@ use std::any::Any;
 
 use crate::{
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
-    nodes_utils::hash_string,
+    nodes_utils::{hash_string, slice_memory_order_mut_or_fix, slice_memory_order_or_fix},
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -29,7 +29,9 @@ impl<T: Default> FromOnnxOperation for SoftMaxNode<T> {
             input: u64::default(),
             o: u64::default(),
             axis: match attrs.get("axis") {
-                Some(av) => av.as_int().unwrap(),
+                Some(av) => av
+                    .as_int()
+                    .ok_or_else(|| anyhow::anyhow!("SoftMax: axis must be int"))?,
                 None => 0,
             },
             unique_id: UniqueId::Softmax,
@@ -82,16 +84,14 @@ impl<T: Default + 'static> Node<T> for SoftMaxNode<T> {
         self.next_node.as_ref()
     }
 
-    fn execute(&self, omap: &mut TensorMap) {
+    fn execute(&self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [x, o] = omap.get_disjoint_mut([&self.input, &self.o]);
-        let x = &*x.unwrap();
-
-        match o {
-            Some(result) => {
-                x.softmax(self.axis, result).unwrap();
-            }
-            None => panic!("SoftMaxNode: missing input {}", self.input),
+        let x = x.map(|val| &*val);
+        crate::debug_check_tensors!("SoftMaxNode", x => self.input, o => self.o);
+        if let (Some(x), Some(out)) = (x, o) {
+            x.softmax(self.axis, out)?;
         }
+        Ok(())
     }
 
     fn output_hashes(&self) -> Vec<u64> {
@@ -123,7 +123,7 @@ impl<T: Default + 'static> Node<T> for SoftMaxNode<T> {
         }
     }
 
-    fn determine_output_shape(&mut self, omap: &mut TensorMap) {
+    fn determine_output_shape(&mut self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [x, o] = omap.get_disjoint_mut([&self.input, &self.o]);
         let x = x.map(|arr| &*arr);
 
@@ -135,9 +135,10 @@ impl<T: Default + 'static> Node<T> for SoftMaxNode<T> {
 
         if let Some(list) = &mut self.next_node {
             for next in list {
-                next.determine_output_shape(omap);
+                next.determine_output_shape(omap)?;
             }
         }
+        Ok(())
     }
 }
 
@@ -163,8 +164,9 @@ macro_rules! softmax_variant {
         }
 
         if let TypedArray::$variant(out) = $o {
-            let dst = out.as_slice_memory_order_mut().unwrap();
-            let src = $a.as_slice_memory_order().unwrap();
+            let mut src_arr = $a.clone();
+            let dst = slice_memory_order_mut_or_fix(out, "softmax")?;
+            let src = slice_memory_order_or_fix(&mut src_arr, "softmax")?;
             dst.copy_from_slice(src);
 
             for mut lane in out.lanes_mut(Axis(axis)) {

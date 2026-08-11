@@ -78,17 +78,13 @@ impl<T: Default + 'static> Node<T> for PowNode<T> {
         self.next_node.as_ref()
     }
 
-    fn execute(&self, omap: &mut TensorMap) {
+    fn execute(&self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [a, b, o] = omap.get_disjoint_mut([&self.a, &self.b, &self.o]);
-        let a = &*a.unwrap();
-        let b = &*b.unwrap();
-
-        match o {
-            Some(out) => {
-                a.pow(b, out).unwrap();
-            }
-            _ => panic!("PowNode: missing output(s) - o={}", self.o),
+        crate::debug_check_tensors!("PowNode", a => self.a, b => self.b, o => self.o);
+        if let (Some(a), Some(b), Some(out)) = (a, b, o) {
+            a.pow(b, out)?;
         }
+        Ok(())
     }
     fn output_hashes(&self) -> Vec<u64> {
         vec![self.o.clone()]
@@ -103,7 +99,7 @@ impl<T: Default + 'static> Node<T> for PowNode<T> {
         }
     }
 
-    fn determine_output_shape(&mut self, omap: &mut TensorMap) {
+    fn determine_output_shape(&mut self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [a, o] = omap.get_disjoint_mut([&self.a, &self.o]);
         let a = a.map(|arr| &*arr);
 
@@ -115,9 +111,10 @@ impl<T: Default + 'static> Node<T> for PowNode<T> {
 
         if let Some(list) = &mut self.next_node {
             for next in list {
-                next.determine_output_shape(omap);
+                next.determine_output_shape(omap)?;
             }
         }
+        Ok(())
     }
 }
 
@@ -150,12 +147,30 @@ macro_rules! impl_pow_variant {
         }
 
         if let TypedArray::$variant(out) = $o {
-            let dst = out.as_slice_memory_order_mut().unwrap();
-            let src = $a_arr.as_slice_memory_order().unwrap();
+            let dst = crate::nodes_utils::slice_memory_order_mut_or_fix(out, "Pow")?;
+            let src_owned;
+            let src = match $a_arr.as_slice_memory_order() {
+                Some(s) => s,
+                None => {
+                    src_owned = $a_arr.as_standard_layout().into_owned();
+                    src_owned.as_slice_memory_order().ok_or_else(|| {
+                        anyhow::anyhow!("Pow: array not contiguous after fix")
+                    })?
+                }
+            };
 
             macro_rules! pow_float {
                 ($b_arr:expr) => {{
-                    let b = $b_arr.as_slice_memory_order().unwrap();
+                    let b_owned;
+                    let b = match $b_arr.as_slice_memory_order() {
+                        Some(s) => s,
+                        None => {
+                            b_owned = $b_arr.as_standard_layout().into_owned();
+                            b_owned.as_slice_memory_order().ok_or_else(|| {
+                                anyhow::anyhow!("Pow: array not contiguous after fix")
+                            })?
+                        }
+                    };
                     if b.len() == 1 {
                         let exp = b[0] as f64;
                         dst.par_iter_mut()
@@ -171,7 +186,16 @@ macro_rules! impl_pow_variant {
 
             macro_rules! pow_int {
                 ($b_arr:expr) => {{
-                    let b = $b_arr.as_slice_memory_order().unwrap();
+                    let b_owned;
+                    let b = match $b_arr.as_slice_memory_order() {
+                        Some(s) => s,
+                        None => {
+                            b_owned = $b_arr.as_standard_layout().into_owned();
+                            b_owned.as_slice_memory_order().ok_or_else(|| {
+                                anyhow::anyhow!("Pow: array not contiguous after fix")
+                            })?
+                        }
+                    };
                     if b.len() == 1 {
                         let exp = b[0] as i32;
                         dst.par_iter_mut()
@@ -204,7 +228,9 @@ macro_rules! impl_pow_variant {
 
 impl TypedArray {
     pub fn pow(&self, b: &TypedArray, o: &mut TypedArray) -> anyhow::Result<()> {
-        let in_shape = self.shape().unwrap();
+        let in_shape = self
+            .shape()
+            .ok_or_else(|| anyhow::anyhow!("Pow: undefined input"))?;
         call_pow_for_typed_array!(
             self,
             b,

@@ -76,19 +76,17 @@ impl<T: Default + 'static> Node<T> for SiluNode<T> {
         vec![self.o.clone()]
     }
 
-    fn execute(&self, omap: &mut TensorMap) {
+    fn execute(&self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [x, o] = omap.get_disjoint_mut([&self.x, &self.o]);
-        let x = &*x.unwrap();
-
-        match o {
-            Some(result) => {
-                x.silu(result).unwrap();
-            }
-            None => panic!("SiluNode: missing input {}", self.x),
+        let x = x.map(|val| &*val);
+        crate::debug_check_tensors!("SiluNode", x => self.x, o => self.o);
+        if let (Some(x), Some(out)) = (x, o) {
+            x.silu(out)?;
         }
+        Ok(())
     }
 
-    fn determine_output_shape(&mut self, omap: &mut TensorMap) {
+    fn determine_output_shape(&mut self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [x, o] = omap.get_disjoint_mut([&self.x, &self.o]);
         let x = x.map(|arr| &*arr);
 
@@ -100,9 +98,10 @@ impl<T: Default + 'static> Node<T> for SiluNode<T> {
 
         if let Some(list) = &mut self.next_node {
             for next in list {
-                next.determine_output_shape(omap);
+                next.determine_output_shape(omap)?;
             }
         }
+        Ok(())
     }
 }
 

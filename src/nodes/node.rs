@@ -5,9 +5,9 @@ use anyhow::{Ok, Result};
 use crate::{nodes::unique_ids::UniqueId, tensor_map::TensorMap, typed_array::TypedArray};
 
 pub trait Node<T: Default + 'static>: Send + Sync {
-    fn execute(&self, omap: &mut TensorMap);
+    fn execute(&self, omap: &mut TensorMap) -> anyhow::Result<()>;
 
-    fn determine_output_shape(&mut self, omap: &mut TensorMap);
+    fn determine_output_shape(&mut self, omap: &mut TensorMap) -> anyhow::Result<()>;
 
     fn print(&self);
 
@@ -38,21 +38,24 @@ pub trait Node<T: Default + 'static>: Send + Sync {
     }
 }
 
-pub fn pass_node<T: Default + 'static>(node: &dyn Node<T>, omap: &mut TensorMap) {
+pub fn pass_node<T: Default + 'static>(
+    node: &dyn Node<T>,
+    omap: &mut TensorMap,
+) -> anyhow::Result<()> {
     let mut current: &dyn Node<T> = node;
     loop {
-        current.execute(omap);
+        current.execute(omap)?;
         match current.get_next() {
             Some(children) if children.len() == 1 => {
                 current = children[0].as_ref();
             }
             Some(children) => {
                 for child in children {
-                    pass_node(child.as_ref(), omap);
+                    pass_node(child.as_ref(), omap)?;
                 }
-                return;
+                return Ok(());
             }
-            None => return,
+            None => return Ok(()),
         }
     }
 }
@@ -61,14 +64,16 @@ pub fn insert_node<T: Default + 'static>(
     node: &mut dyn Node<T>,
     next: Box<dyn Node<T>>,
 ) -> Result<()> {
-    let mut current: &mut dyn Node<T> = node;
+    let mut current_ptr: *mut dyn Node<T> = node;
     loop {
-        if current.get_next_mut().is_some() {
-            let children = current.get_next_mut().unwrap();
-            current = children[0].as_mut();
-        } else {
-            current.set_next(Some(vec![next]));
-            return Ok(());
+        unsafe {
+            let current = &mut *current_ptr;
+            if let Some(children) = current.get_next_mut() {
+                current_ptr = children[0].as_mut() as *mut dyn Node<T>;
+            } else {
+                current.set_next(Some(vec![next]));
+                return Ok(());
+            }
         }
     }
 }

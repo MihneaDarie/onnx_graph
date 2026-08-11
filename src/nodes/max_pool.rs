@@ -2,7 +2,7 @@ use std::{any::Any, cell::RefCell, str::FromStr};
 
 use crate::{
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
-    nodes_utils::hash_string,
+    nodes_utils::{hash_string, slice_memory_order_mut_or_fix, slice_memory_order_or_fix},
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -62,8 +62,11 @@ impl<T: Default> FromOnnxOperation for MaxPoolNode<T> {
             auto_pad: {
                 match attrs.get("auto_pad") {
                     Some(av) => {
-                        let pad = av.as_string().unwrap();
-                        AutoPad::from_str(pad).unwrap()
+                        let pad = av
+                            .as_string()
+                            .ok_or_else(|| anyhow::anyhow!("MaxPool: auto_pad must be string"))?;
+                        AutoPad::from_str(pad)
+                            .map_err(|e| anyhow::anyhow!("MaxPool: invalid auto_pad {pad:?}: {e}"))?
                     }
                     None => AutoPad::NOTSET,
                 }
@@ -72,7 +75,7 @@ impl<T: Default> FromOnnxOperation for MaxPoolNode<T> {
                 match attrs.get("kernel_shape") {
                     Some(av) => av
                         .as_ints()
-                        .unwrap()
+                        .ok_or_else(|| anyhow::anyhow!("MaxPool: kernel_shape must be ints"))?
                         .iter()
                         .map(|&val| val as usize)
                         .collect(),
@@ -83,7 +86,7 @@ impl<T: Default> FromOnnxOperation for MaxPoolNode<T> {
                 match attrs.get("pads") {
                     Some(av) => av
                         .as_ints()
-                        .unwrap()
+                        .ok_or_else(|| anyhow::anyhow!("MaxPool: pads must be ints"))?
                         .iter()
                         .map(|&val| val as usize)
                         .collect(),
@@ -94,7 +97,7 @@ impl<T: Default> FromOnnxOperation for MaxPoolNode<T> {
                 match attrs.get("strides") {
                     Some(av) => av
                         .as_ints()
-                        .unwrap()
+                        .ok_or_else(|| anyhow::anyhow!("MaxPool: strides must be ints"))?
                         .iter()
                         .map(|&val| val as usize)
                         .collect(),
@@ -105,7 +108,7 @@ impl<T: Default> FromOnnxOperation for MaxPoolNode<T> {
                 match attrs.get("dilations") {
                     Some(av) => av
                         .as_ints()
-                        .unwrap()
+                        .ok_or_else(|| anyhow::anyhow!("MaxPool: dilations must be ints"))?
                         .iter()
                         .map(|&val| val as usize)
                         .collect(),
@@ -114,13 +117,18 @@ impl<T: Default> FromOnnxOperation for MaxPoolNode<T> {
             },
             ceil_mode: {
                 match attrs.get("ceil_mode") {
-                    Some(av) => av.as_int().unwrap(),
+                    Some(av) => av
+                        .as_int()
+                        .ok_or_else(|| anyhow::anyhow!("MaxPool: ceil_mode must be int"))?,
                     None => 0,
                 }
             },
             storage_order: {
                 match attrs.get("storage_order") {
-                    Some(av) => av.as_int().unwrap().to_owned() as usize,
+                    Some(av) => av
+                        .as_int()
+                        .ok_or_else(|| anyhow::anyhow!("MaxPool: storage_order must be int"))?
+                        as usize,
                     None => 0,
                 }
             },
@@ -149,7 +157,7 @@ impl<T: Default> MaxPoolNode<T> {
         Self {
             x: u64::default(),
             o: u64::default(),
-            auto_pad: AutoPad::from_str(auto_pad).unwrap(),
+            auto_pad: AutoPad::from_str(auto_pad).unwrap_or(AutoPad::NOTSET),
             ceil_mode,
             kernel_shape,
             dilations,
@@ -201,10 +209,10 @@ pub fn maxpool_fast(
         let mut out4 = out.view_mut().into_dimensionality::<Ix4>()?;
 
         match kh {
-            3 => maxpool_3x3_mut(&x4, &mut out4),
-            5 => maxpool_5x5_mut(&x4, &mut out4),
-            9 => maxpool_9x9_mut(&x4, &mut out4),
-            13 => maxpool_13x13_mut(&x4, &mut out4),
+            3 => maxpool_3x3_mut(&x4, &mut out4)?,
+            5 => maxpool_5x5_mut(&x4, &mut out4)?,
+            9 => maxpool_9x9_mut(&x4, &mut out4)?,
+            13 => maxpool_13x13_mut(&x4, &mut out4)?,
             _ => return Ok(false),
         }
 
@@ -220,15 +228,17 @@ thread_local! {
 
 macro_rules! impl_maxpool_nxn {
     ($name:ident, $k:expr) => {
-        pub fn $name(input: &ArrayView4<f32>, output: &mut ArrayViewMut4<f32>) {
+        pub fn $name(input: &ArrayView4<f32>, output: &mut ArrayViewMut4<f32>) -> anyhow::Result<()> {
             const K: usize = $k;
             const HALF: usize = K / 2;
 
             let (_, _, h, w) = input.dim();
             let hw = h * w;
 
-            let in_sl = input.as_slice_memory_order().unwrap();
-            let out_sl = output.as_slice_memory_order_mut().unwrap();
+            let mut in_arr = input.to_owned().into_dyn();
+            let mut out_arr = output.to_owned().into_dyn();
+            let in_sl = slice_memory_order_or_fix(&mut in_arr, stringify!($name))?;
+            let out_sl = slice_memory_order_mut_or_fix(&mut out_arr, stringify!($name))?;
 
             out_sl
                 .par_chunks_mut(hw)
@@ -282,6 +292,9 @@ macro_rules! impl_maxpool_nxn {
                         }
                     });
                 });
+            let out_view = out_arr.view().into_dimensionality::<Ix4>()?;
+            output.assign(&out_view);
+            Ok(())
         }
     };
 }
@@ -322,34 +335,29 @@ impl<T: Default + 'static> Node<T> for MaxPoolNode<T> {
         vec![self.o.clone()]
     }
 
-    fn execute(&self, omap: &mut TensorMap) {
+    fn execute(&self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [x, o] = omap.get_disjoint_mut([&self.x, &self.o]);
-        let x = &*x.unwrap();
+        crate::debug_check_tensors!("MaxPoolNode", x => self.x, o => self.o);
+        if let (Some(x), Some(out)) = (x, o) {
+            let kernel: Vec<usize> = self.kernel_shape.to_vec();
+            let strides: Vec<usize> = self.strides.to_vec();
+            let pads: Vec<usize> = self.pads.to_vec();
+            let dilations: Vec<usize> = self.dilations.to_vec();
 
-        match o {
-            Some(result) => {
-                let kernel: Vec<usize> = self.kernel_shape.to_vec();
-                let strides: Vec<usize> = self.strides.to_vec();
-                let pads: Vec<usize> = self.pads.to_vec();
-                let dilations: Vec<usize> = self.dilations.to_vec();
+            let handled = maxpool_fast(x, &kernel, &strides, &pads, &dilations, out)?;
 
-                let handled =
-                    maxpool_fast(x, &kernel, &strides, &pads, &dilations, result).unwrap_or(false);
-
-                if !handled {
-                    x.max_pool(
-                        &kernel,
-                        &strides,
-                        &pads,
-                        &dilations,
-                        self.ceil_mode != 0,
-                        result,
-                    )
-                    .unwrap();
-                }
+            if !handled {
+                x.max_pool(
+                    &kernel,
+                    &strides,
+                    &pads,
+                    &dilations,
+                    self.ceil_mode != 0,
+                    out,
+                )?;
             }
-            None => panic!("MaxPoolNode: missing input {}", self.x),
         }
+        Ok(())
     }
 
     fn output_hashes(&self) -> Vec<u64> {
@@ -367,7 +375,7 @@ impl<T: Default + 'static> Node<T> for MaxPoolNode<T> {
         }
     }
 
-    fn determine_output_shape(&mut self, omap: &mut TensorMap) {
+    fn determine_output_shape(&mut self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [x, o] = omap.get_disjoint_mut([&self.x, &self.o]);
         let x = x.map(|arr| &*arr);
 
@@ -402,17 +410,20 @@ impl<T: Default + 'static> Node<T> for MaxPoolNode<T> {
 
         if let Some(list) = &mut self.next_node {
             for next in list {
-                next.determine_output_shape(omap);
+                next.determine_output_shape(omap)?;
             }
         }
+        Ok(())
     }
 }
 
-fn maxpool_5x5(input: &ArrayView4<f32>, output: &mut ArrayViewMut4<f32>) {
+fn maxpool_5x5(input: &ArrayView4<f32>, output: &mut ArrayViewMut4<f32>) -> anyhow::Result<()> {
     let (_, _, h, w) = input.dim();
 
-    let in_sl = input.as_slice_memory_order().unwrap();
-    let out_sl = output.as_slice_memory_order_mut().unwrap();
+    let mut in_arr = input.to_owned().into_dyn();
+    let mut out_arr = output.to_owned().into_dyn();
+    let in_sl = slice_memory_order_or_fix(&mut in_arr, "maxpool_5x5")?;
+    let out_sl = slice_memory_order_mut_or_fix(&mut out_arr, "maxpool_5x5")?;
 
     let hw = h * w;
 
@@ -476,6 +487,9 @@ fn maxpool_5x5(input: &ArrayView4<f32>, output: &mut ArrayViewMut4<f32>) {
                 }
             });
         });
+    let out_view = out_arr.view().into_dimensionality::<Ix4>()?;
+    output.assign(&out_view);
+    Ok(())
 }
 
 #[inline(always)]
@@ -527,7 +541,9 @@ macro_rules! max_pool_variant {
 
         let mut out = ArrayD::from_elem(
             IxDyn(&[batch, channels, hout, wout]),
-            $x.iter().next().copied().unwrap(),
+            $x.iter().next().copied().ok_or_else(|| {
+                anyhow::anyhow!("MaxPool: empty input tensor")
+            })?,
         );
 
         for b in 0..batch {
@@ -558,7 +574,9 @@ macro_rules! max_pool_variant {
                                 }
                             }
                         }
-                        out[[b, c, oh, ow]] = max_val.unwrap();
+                        out[[b, c, oh, ow]] = max_val.ok_or_else(|| {
+                            anyhow::anyhow!("MaxPool: no valid values in pooling window")
+                        })?;
                     }
                 }
             }
@@ -592,7 +610,7 @@ impl TypedArray {
                 let x4 = x.view().into_dimensionality::<Ix4>()?;
                 if let TypedArray::Float(o) = o {
                     let mut out4 = o.view_mut().into_dimensionality::<Ix4>()?;
-                    maxpool_5x5(&x4, &mut out4);
+                    maxpool_5x5(&x4, &mut out4)?;
                 }
                 return Ok(());
             }

@@ -64,17 +64,13 @@ impl<T: Default + 'static> Node<T> for GreaterNode<T> {
         self.next_node.as_ref()
     }
 
-    fn execute(&self, omap: &mut TensorMap) {
+    fn execute(&self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [a, b, o] = omap.get_disjoint_mut([&self.a, &self.b, &self.o]);
-        let a = &*a.unwrap();
-        let b = &*b.unwrap();
-
-        match o {
-            Some(result) => {
-                a.greater_op(b, result).unwrap();
-            }
-            None => panic!("GreaterNode: missing input {}", self.a),
+        crate::debug_check_tensors!("GreaterNode", a => self.a, b => self.b, o => self.o);
+        if let (Some(a), Some(b), Some(out)) = (a, b, o) {
+            a.greater_op(b, out)?;
         }
+        Ok(())
     }
 
     fn output_hashes(&self) -> Vec<u64> {
@@ -106,7 +102,7 @@ impl<T: Default + 'static> Node<T> for GreaterNode<T> {
         }
     }
 
-    fn determine_output_shape(&mut self, omap: &mut TensorMap) {
+    fn determine_output_shape(&mut self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [x, o] = omap.get_disjoint_mut([&self.a, &self.o]);
         let x = x.map(|arr| &*arr);
 
@@ -118,9 +114,10 @@ impl<T: Default + 'static> Node<T> for GreaterNode<T> {
 
         if let Some(list) = &mut self.next_node {
             for next in list {
-                next.determine_output_shape(omap);
+                next.determine_output_shape(omap)?;
             }
         }
+        Ok(())
     }
 }
 

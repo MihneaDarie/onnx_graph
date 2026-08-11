@@ -3,7 +3,7 @@ use std::any::Any;
 use crate::{
     get_curent_size_and_shape,
     nodes::{node::Node, onnx_operation_trait::FromOnnxOperation, unique_ids::UniqueId},
-    nodes_utils::hash_string,
+    nodes_utils::{hash_string, slice_memory_order_mut_or_fix, slice_memory_order_or_fix},
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -33,7 +33,10 @@ impl<T: Default> FromOnnxOperation for ReshapeNode<T> {
             o: u64::default(),
             allow_zero: {
                 match attrs.get("allow_zero") {
-                    Some(av) => av.as_int().unwrap() != 0,
+                    Some(av) => av
+                        .as_int()
+                        .ok_or_else(|| anyhow::anyhow!("Reshape: allow_zero must be int"))?
+                        != 0,
                     None => false,
                 }
             },
@@ -102,20 +105,19 @@ impl<T: Default + 'static> Node<T> for ReshapeNode<T> {
         self.next_node.as_ref()
     }
 
-    fn execute(&self, omap: &mut TensorMap) {
+    fn execute(&self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [data, shape, result] = omap.get_disjoint_mut([&self.data, &self.shape, &self.o]);
-        let data = &*data.unwrap();
-        let shape = &*shape.unwrap();
-
-        match result {
-            Some(result) => {
-                data.reshape(shape, self.allow_zero, result).unwrap();
-            }
-            _ => panic!(
-                "ReshapeNode: missing input(s) - data={} shape={}",
-                self.data, self.shape
-            ),
+        crate::debug_check_tensors!(
+            "ReshapeNode",
+            data => self.data,
+            shape => self.shape,
+            result => self.o,
+        );
+        let shape = shape.map(|val| &*val);
+        if let (Some(data), Some(shape), Some(out)) = (data, shape, result) {
+            data.reshape(shape, self.allow_zero, out)?;
         }
+        Ok(())
     }
 
     fn output_hashes(&self) -> Vec<u64> {
@@ -132,7 +134,7 @@ impl<T: Default + 'static> Node<T> for ReshapeNode<T> {
         }
     }
 
-    fn determine_output_shape(&mut self, omap: &mut TensorMap) {
+    fn determine_output_shape(&mut self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [data, shape, o] = omap.get_disjoint_mut([&self.data, &self.shape, &self.o]);
         let data = data.map(|arr| &*arr);
         let shape = shape.map(|arr| &*arr);
@@ -176,9 +178,10 @@ impl<T: Default + 'static> Node<T> for ReshapeNode<T> {
 
         if let Some(list) = &mut self.next_node {
             for next in list {
-                next.determine_output_shape(omap);
+                next.determine_output_shape(omap)?;
             }
         }
+        Ok(())
     }
 }
 
@@ -198,7 +201,8 @@ macro_rules! call_reshape_for_typed_array {
 
 macro_rules! reshape_variant {
     ($variant:ident, $new_shape:expr ,$a:expr, $o:expr) => {{
-        let src = $a.as_slice_memory_order().unwrap();
+        let mut src_arr = $a.clone();
+        let src = slice_memory_order_or_fix(&mut src_arr, "reshape")?;
 
         let needs_realloc = match &*($o) {
             TypedArray::$variant(out) => out.shape() != $new_shape.as_slice(),
@@ -210,7 +214,7 @@ macro_rules! reshape_variant {
                 TypedArray::$variant(ArrayD::from_shape_vec(IxDyn(&($new_shape)), src.to_vec())?);
         } else {
             if let TypedArray::$variant(out) = $o {
-                let dst = out.as_slice_memory_order_mut().unwrap();
+                let dst = slice_memory_order_mut_or_fix(out, "reshape")?;
                 dst.copy_from_slice(src);
             }
         }

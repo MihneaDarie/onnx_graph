@@ -2,7 +2,7 @@ use std::any::Any;
 
 use crate::{
     nodes::{node::Node, unique_ids::UniqueId},
-    nodes_utils::hash_string,
+    nodes_utils::{hash_string, slice_memory_order_mut_or_fix},
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -72,23 +72,26 @@ impl<T: Default + 'static> Node<T> for SliceNode<T> {
         self.next_node.as_ref()
     }
 
-    fn execute(&self, omap: &mut TensorMap) {
+    fn execute(&self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [data, starts, ends, axes, o] =
             omap.get_disjoint_mut([&self.data, &self.starts, &self.ends, &self.axes, &self.o]);
-        let data = &*data.unwrap();
-        let starts = &*starts.unwrap();
-        let ends = &*ends.unwrap();
-        let axes = &*axes.unwrap();
-
-        match o {
-            Some(result) => {
-                data.slice(starts, ends, axes, result).unwrap();
-            }
-            _ => panic!(
-                "SliceNode: missing input(s) - data={} starts={} ends={} axes={}",
-                self.data, self.starts, self.ends, self.axes
-            ),
+        crate::debug_check_tensors!(
+            "SliceNode",
+            data => self.data,
+            starts => self.starts,
+            ends => self.ends,
+            axes => self.axes,
+            o => self.o,
+        );
+        let starts = starts.map(|val| &*val);
+        let ends = ends.map(|val| &*val);
+        let axes = axes.map(|val| &*val);
+        if let (Some(data), Some(starts), Some(ends), Some(axes), Some(out)) =
+            (data, starts, ends, axes, o)
+        {
+            data.slice(starts, ends, axes, out)?;
         }
+        Ok(())
     }
 
     fn output_hashes(&self) -> Vec<u64> {
@@ -128,7 +131,7 @@ impl<T: Default + 'static> Node<T> for SliceNode<T> {
         }
     }
 
-    fn determine_output_shape(&mut self, omap: &mut TensorMap) {
+    fn determine_output_shape(&mut self, omap: &mut TensorMap) -> anyhow::Result<()> {
         let [data, starts, ends, axes, o] =
             omap.get_disjoint_mut([&self.data, &self.starts, &self.ends, &self.axes, &self.o]);
         let data = data.map(|arr| &*arr);
@@ -176,9 +179,10 @@ impl<T: Default + 'static> Node<T> for SliceNode<T> {
 
         if let Some(list) = &mut self.next_node {
             for next in list {
-                next.determine_output_shape(omap);
+                next.determine_output_shape(omap)?;
             }
         }
+        Ok(())
     }
 }
 
@@ -245,7 +249,7 @@ macro_rules! call_slice_for_typed_array {
                 let view = a.slice(ndarray::SliceInfo::<_, IxDyn, IxDyn>::try_from(slice_info)?);
 
                 if let TypedArray::Bool(out) = $o {
-                    let dst = out.as_slice_memory_order_mut().unwrap();
+                    let dst = slice_memory_order_mut_or_fix(out, "slice")?;
                     for (d, s) in dst.iter_mut().zip(view.iter()) {
                         *d = *s;
                     }
@@ -312,7 +316,7 @@ macro_rules! slice_variant {
         let view = $a.slice(ndarray::SliceInfo::<_, IxDyn, IxDyn>::try_from(slice_info)?);
 
         if let TypedArray::$variant(out) = $o {
-            let dst = out.as_slice_memory_order_mut().unwrap();
+            let dst = slice_memory_order_mut_or_fix(out, "slice")?;
             for (d, s) in dst.iter_mut().zip(view.iter()) {
                 *d = *s;
             }
