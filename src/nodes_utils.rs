@@ -25,6 +25,16 @@ macro_rules! debug_check_tensors {
 }
 
 #[inline(always)]
+pub fn normalize_axis(axis: i64, ndim: usize) -> anyhow::Result<usize> {
+    let a = if axis < 0 { ndim as i64 + axis } else { axis };
+    let u = a as usize;
+    if a < 0 || u >= ndim {
+        anyhow::bail!("axis {axis} out of bounds for rank {ndim}");
+    }
+    Ok(u)
+}
+
+#[inline(always)]
 pub fn ensure_contiguous_in_place(arr: &mut TypedArray) -> anyhow::Result<()> {
     if matches!(arr, TypedArray::Undefined) {
         anyhow::bail!("cannot make Undefined array contiguous");

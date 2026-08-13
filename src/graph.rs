@@ -26,6 +26,8 @@ use crate::{
         max_pool::MaxPoolNode,
         mul::MulNode,
         neg::NegNode,
+        not::NotNode,
+        abs::AbsNode,
         node::{Node, insert_node, pass_node},
         onnx_operation_trait::FromOnnxOperation,
         pow::PowNode,
@@ -36,6 +38,7 @@ use crate::{
         resize::ResizeNode,
         shape::ShapeNode,
         sigmoid::SigmoidNode,
+        erf::ErfNode,
         sin::SinNode,
         slice::SliceNode,
         soft_max::SoftMaxNode,
@@ -45,6 +48,7 @@ use crate::{
         transpose::TransposeNode,
         unique_ids::UniqueId,
         unsqueeze::UnsquezeeNode,
+        squeeze::SqueezeNode,
         where_op::WhereNode,
     },
     tensor_map::TensorMap,
@@ -151,6 +155,7 @@ impl<T: Default + 'static> GraphForm<T> {
             "Flatten" => Box::new(FlattenNode::from_onnx_operation(elem)?),
             "Where" => Box::new(WhereNode::new(elem)),
             "Unsqueeze" => Box::new(UnsquezeeNode::new(elem)),
+            "Squeeze" => Box::new(SqueezeNode::new(elem)),
 
             "ConstantOfShape" | "Constant" => {
                 Box::new(ConstantOfShapeNode::from_onnx_operation(elem)?)
@@ -166,6 +171,7 @@ impl<T: Default + 'static> GraphForm<T> {
             "Range" => Box::new(RangeNode::new(elem)),
 
             "Sigmoid" => Box::new(SigmoidNode::new(elem)),
+            "Erf" => Box::new(ErfNode::new(elem)),
             "Relu" => Box::new(ReluNode::new(elem)),
             "LeakyRelu" => Box::new(LeakyReluNode::from_onnx_operation(elem)?),
 
@@ -192,6 +198,8 @@ impl<T: Default + 'static> GraphForm<T> {
             "Pow" => Box::new(PowNode::new(elem)),
 
             "Neg" => Box::new(NegNode::new(elem)),
+            "Abs" => Box::new(AbsNode::new(elem)),
+            "Not" => Box::new(NotNode::new(elem)),
 
             "ArgMax" => Box::new(ArgMaxNode::from_onnx_operation(elem)?),
             "Softmax" => Box::new(SoftMaxNode::from_onnx_operation(&elem)?),

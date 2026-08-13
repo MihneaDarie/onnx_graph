@@ -14,6 +14,8 @@ use onnx_extractor::OnnxOperation;
 pub struct ReduceMeanNode<T: Default> {
     data: u64,
     axes: Option<u64>,
+    
+    axes_attr: Option<Vec<i64>>,
 
     o: u64,
 
@@ -30,6 +32,10 @@ impl<T: Default> FromOnnxOperation for ReduceMeanNode<T> {
         let mut reduce_mean = Self {
             data: u64::default(),
             axes: None,
+            axes_attr: attrs
+                .get("axes")
+                .and_then(|val| val.as_ints())
+                .map(|s| s.to_vec()),
             keepdims: None,
             noop_with_empty_axes: None,
             o: u64::default(),
@@ -68,6 +74,18 @@ impl<T: Default> ReduceMeanNode<T> {
 
     pub fn add_outputs(&mut self, o: u64) {
         self.o = o;
+    }
+
+    /// Resolves the effective reduction axes, preferring the (opset 18+)
+    /// tensor input when present, falling back to the (opset < 18) attribute.
+    fn resolve_axes(&self, axes_tensor: Option<&TypedArray>) -> Option<Vec<i64>> {
+        if let Some(TypedArray::Int64(ax)) = axes_tensor {
+            if !ax.is_empty() {
+                return Some(ax.iter().copied().collect());
+            }
+            return None;
+        }
+        self.axes_attr.clone()
     }
 }
 
@@ -124,6 +142,7 @@ impl<T: Default + 'static> Node<T> for ReduceMeanNode<T> {
         } else {
             None
         };
+        let resolved_axes = self.resolve_axes(axes_tensor);
         if let (Some(data), Some(out)) = (data, o) {
             let keepdims = self
                 .keepdims
@@ -131,7 +150,7 @@ impl<T: Default + 'static> Node<T> for ReduceMeanNode<T> {
             let noop = self
                 .noop_with_empty_axes
                 .ok_or_else(|| anyhow::anyhow!("ReduceMeanNode: missing noop_with_empty_axes"))?;
-            data.reduce_mean(axes_tensor, keepdims != 0, noop != 0, out)?;
+            data.reduce_mean(resolved_axes.as_deref(), keepdims != 0, noop != 0, out)?;
         }
         Ok(())
     }
@@ -151,6 +170,7 @@ impl<T: Default + 'static> Node<T> for ReduceMeanNode<T> {
         let [data, axes, o] = omap.get_disjoint_mut([&self.data, &axes_key, &self.o]);
         let data = data.map(|inner| &*inner);
         let axes = axes.map(|inner| &*inner);
+        let resolved_axes = self.resolve_axes(axes);
 
         if let Some(data) = data {
             let out_shape = {
@@ -167,8 +187,8 @@ impl<T: Default + 'static> Node<T> for ReduceMeanNode<T> {
                 };
                 let ndim = in_shape.len();
 
-                let axes_vec: Vec<usize> = match axes {
-                    Some(TypedArray::Int64(ax)) if !ax.is_empty() => ax
+                let axes_vec: Vec<usize> = match &resolved_axes {
+                    Some(ax) if !ax.is_empty() => ax
                         .iter()
                         .map(|&a| {
                             if a < 0 {
@@ -228,7 +248,7 @@ impl<T: Default + 'static> Node<T> for ReduceMeanNode<T> {
 impl TypedArray {
     pub fn reduce_mean(
         &self,
-        axes: Option<&TypedArray>,
+        axes: Option<&[i64]>,
         keepdims: bool,
         noop_with_empty_axes: bool,
         o: &mut TypedArray,
@@ -242,7 +262,7 @@ impl TypedArray {
                 let ndim = in_shape.len();
 
                 let axes_vec: Vec<usize> = match axes {
-                    Some(TypedArray::Int64(ax)) if ax.len() > 0 => ax
+                    Some(ax) if !ax.is_empty() => ax
                         .iter()
                         .map(|&a| {
                             if a < 0 {

@@ -12,6 +12,8 @@ pub mod leaky_relu;
 pub mod max_pool;
 pub mod mul;
 pub mod neg;
+pub mod not;
+pub mod abs;
 pub mod node;
 pub mod onnx_operation_trait;
 pub mod pow;
@@ -20,6 +22,7 @@ pub mod reshape;
 pub mod resize;
 pub mod shape;
 pub mod sigmoid;
+pub mod erf;
 pub mod silu;
 pub mod sin;
 pub mod slice;
@@ -46,6 +49,7 @@ pub mod where_op;
 pub mod flatten;
 
 pub mod unsqueeze;
+pub mod squeeze;
 
 pub mod constant_of_shape;
 pub mod range;

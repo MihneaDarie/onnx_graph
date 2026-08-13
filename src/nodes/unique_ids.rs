@@ -13,6 +13,7 @@ pub enum UniqueId {
     Transpose,
 
     Unsqueeze,
+    Squeeze,
     Cast,
     Flatten,
     Where,
@@ -44,9 +45,12 @@ pub enum UniqueId {
     Gather,
 
     Neg,
+    Abs,
+    Not,
 
     //Activation
     Sigmoid,
+    Erf,
     Silu,
     Relu,
     LeakyRelu,

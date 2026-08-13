@@ -2,7 +2,7 @@ use std::any::Any;
 
 use crate::{
     nodes::{node::Node, unique_ids::UniqueId},
-    nodes_utils::{hash_string, slice_memory_order_mut_or_fix},
+    nodes_utils::{hash_string, normalize_axis, slice_memory_order_mut_or_fix},
     tensor_map::TensorMap,
     typed_array::TypedArray,
 };
@@ -147,10 +147,11 @@ impl<T: Default + 'static> Node<T> for SliceNode<T> {
                 Some(TypedArray::Int64(axes)),
             ) = (starts, ends, axes)
         {
+            let ndim = in_shape.len();
             let mut out_shape = in_shape.to_vec();
 
             for i in 0..axes.len() {
-                let axis = axes[i] as usize;
+                let axis = normalize_axis(axes[i], ndim)?;
                 let dim_size = in_shape[axis] as i64;
 
                 let start = {
@@ -208,7 +209,7 @@ macro_rules! call_slice_for_typed_array {
                 let mut out_shape = a.shape().to_vec();
 
                 for i in 0..$axes.len() {
-                    let axis = $axes[i] as usize;
+                    let axis = crate::nodes_utils::normalize_axis($axes[i], ndim)?;
                     let dim_size = a.shape()[axis] as i64;
 
                     let start = {
@@ -275,7 +276,7 @@ macro_rules! slice_variant {
         let mut out_shape = $a.shape().to_vec();
 
         for i in 0..$axes.len() {
-            let axis = $axes[i] as usize;
+            let axis = crate::nodes_utils::normalize_axis($axes[i], ndim)?;
             let dim_size = $a.shape()[axis] as i64;
 
             let start = {

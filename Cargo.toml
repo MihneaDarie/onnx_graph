@@ -13,3 +13,4 @@ anyhow = "1.0.100"
 ndarray = { version = "0.17.1", features = ["rayon"] }
 onnx-extractor = "0.3.10"
 saker-rs = {path = "../saker-rs"}
+libm = "0.2.16"
